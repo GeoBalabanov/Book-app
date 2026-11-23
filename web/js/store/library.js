@@ -103,8 +103,15 @@ export const library = {
   },
 };
 
+// The artifact host can't serve .epub files, so the hosted copy of the sample
+// is base64 text; the local server serves the .epub directly.
 async function fetchSample() {
   const res = await fetch(SAMPLE_URL);
-  if (!res.ok) throw new Error(`Sample book request failed (${res.status})`);
-  return res.blob();
+  if (res.ok && !/text\/html/.test(res.headers.get('content-type') || '')) return res.blob();
+  const b64 = await fetch(`${SAMPLE_URL}.b64.txt`);
+  if (!b64.ok) throw new Error(`Sample book request failed (${b64.status})`);
+  const bin = atob((await b64.text()).trim());
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: 'application/epub+zip' });
 }
