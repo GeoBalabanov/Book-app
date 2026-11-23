@@ -1,4 +1,4 @@
-import { h, clear, icons, markedSentence, formatRelativeDue, toast } from '../util.js';
+import { h, clear, icons, boldSentence, toast } from '../util.js';
 import { vocab } from '../store/vocab.js';
 import { openWordSheet } from '../ui/word-sheet.js';
 
@@ -8,13 +8,15 @@ export function renderVocabulary(root) {
   const page = h('div', { class: 'page' });
   clear(root).append(page);
 
-  const search = h('input', { type: 'search', id: 'vocab-search', placeholder: 'Search words or translations', 'aria-label': 'Search vocabulary', value: state.query, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
-  const bookSel = h('select', { class: 'select', id: 'vocab-book', 'aria-label': 'Filter by book' });
+  const search = h('input', { type: 'search', id: 'vocab-search', placeholder: 'Search', 'aria-label': 'Search vocabulary', value: state.query, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+  const bookSel = h('select', { class: 'menu-select', id: 'vocab-book', 'aria-label': 'Filter by book' });
+  const caption = h('span', { class: 'list-caption' });
   const listWrap = h('div');
   page.append(
     h('div', { class: 'nav-row' }),
     h('h1', { class: 'large-title' }, 'Vocabulary'),
-    h('div', { class: 'toolbar' }, h('label', { class: 'search' }, h('span', { html: icons.search }), search), bookSel),
+    h('label', { class: 'search' }, h('span', { html: icons.search }), search),
+    h('div', { class: 'filter-row' }, caption, bookSel),
     listWrap,
   );
   search.addEventListener('input', () => { state.query = search.value; drawList(); });
@@ -24,11 +26,12 @@ export function renderVocabulary(root) {
     const books = [...new Set(vocab.all.map((e) => e.bookTitle).filter(Boolean))].sort();
     if (state.book && !books.includes(state.book)) state.book = '';
     clear(bookSel).append(h('option', { value: '' }, 'All Books'), ...books.map((b) => h('option', { value: b, selected: b === state.book }, b)));
-    bookSel.hidden = books.length < 1;
+    bookSel.hidden = books.length < 2;
   };
 
   const drawList = () => {
     clear(listWrap);
+    caption.textContent = '';
     if (!vocab.isReady) { listWrap.append(h('p', { class: 'muted' }, vocab.error || 'Loading saved words…')); return; }
     if (vocab.error) listWrap.append(h('p', { class: 'error-box' }, vocab.error));
     const q = state.query.trim().toLowerCase();
@@ -36,12 +39,12 @@ export function renderVocabulary(root) {
       && (!q || [e.word, e.lemma, e.translation, e.dictionaryTranslation].some((s) => s?.toLowerCase().includes(q))));
     if (!vocab.all.length) {
       listWrap.append(h('div', { class: 'empty' },
-        h('h3', {}, 'No saved words yet'),
-        h('p', {}, 'While reading, press and hold a word (or double-click it) to translate it, then tap “Save to flashcards”.')));
+        h('h3', {}, 'No Saved Words'),
+        h('p', {}, 'While reading, touch and hold a word to look it up, then tap Save to Flashcards.')));
       return;
     }
-    listWrap.append(h('p', { class: 'count-note' }, items.length === vocab.all.length ? `${items.length} ${items.length === 1 ? 'word' : 'words'}` : `${items.length} of ${vocab.all.length} words`));
-    if (!items.length) { listWrap.append(h('div', { class: 'empty' }, h('p', {}, `No words match “${state.query}”.`))); return; }
+    caption.textContent = items.length === vocab.all.length ? `${items.length} ${items.length === 1 ? 'Word' : 'Words'}` : `${items.length} of ${vocab.all.length} Words`;
+    if (!items.length) { listWrap.append(h('div', { class: 'empty' }, h('p', {}, `No results for “${state.query}”`))); return; }
     const ul = h('ul', { class: 'list' });
     for (const e of items) ul.append(row(e));
     listWrap.append(ul);
@@ -55,12 +58,9 @@ export function renderVocabulary(root) {
 
 function row(e) {
   const del = h('button', { class: 'row-delete', 'aria-label': `Delete ${e.word}`, tabindex: '-1' }, 'Delete');
-  const due = e.srs?.due ? formatRelativeDue(e.srs.due) : '';
   const main = h('div', { class: 'row-main', role: 'button', tabindex: '0', 'aria-label': `${e.word}: ${e.translation}` },
-    h('div', { class: 'row-head' }, h('span', { class: 'row-word', lang: 'en' }, e.word), h('span', { class: 'row-tr', lang: 'bg' }, e.translation),
-      due ? h('span', { class: 'row-due', title: 'Next review' }, due === 'due' ? 'Due' : `in ${due}`) : null),
-    h('div', { class: 'row-sentence', lang: 'en' }, markedSentence(e.sentence, e.word, e.offset)),
-    e.bookTitle ? h('div', { class: 'row-meta' }, e.bookTitle) : null,
+    h('div', { class: 'row-line' }, h('span', { class: 'row-word', lang: 'en' }, e.word), h('span', { class: 'row-tr', lang: 'bg' }, e.translation)),
+    h('div', { class: 'row-sentence', lang: 'en' }, boldSentence(e.sentence, e.word, e.offset)),
   );
   const li = h('li', { class: 'row' }, del, main);
 

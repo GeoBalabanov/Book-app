@@ -23,6 +23,7 @@ async function show(tab) {
     if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   root.scrollTop = 0;
+  root.classList.toggle('grouped', tab === 'vocabulary');
   cleanup = await TABS[tab](root);
 }
 

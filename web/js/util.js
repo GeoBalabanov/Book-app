@@ -100,14 +100,27 @@ export function formatRelativeDue(due, now = Date.now()) {
 }
 
 export const icons = {
-  close: '<svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  close: '<svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   back: '<svg viewBox="0 0 20 20"><path d="M12.5 3.5L6 10l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  list: '<svg viewBox="0 0 20 20"><path d="M7 5h10M7 10h10M7 15h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="3.5" cy="5" r="1.2" fill="currentColor"/><circle cx="3.5" cy="10" r="1.2" fill="currentColor"/><circle cx="3.5" cy="15" r="1.2" fill="currentColor"/></svg>',
-  plus: '<svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
-  gear: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
-  more: '<svg viewBox="0 0 20 6" width="18" height="6"><circle cx="3" cy="3" r="2" fill="currentColor"/><circle cx="10" cy="3" r="2" fill="currentColor"/><circle cx="17" cy="3" r="2" fill="currentColor"/></svg>',
-  search: '<svg viewBox="0 0 18 18"><circle cx="7.5" cy="7.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11.6 11.6L16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
-  sunSmall: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3" fill="currentColor"/><path d="M10 3v1.5M10 15.5V17M3 10h1.5M15.5 10H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-  sunLarge: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2.5M10 16v2.5M1.5 10H4M16 10h2.5M4 4l1.8 1.8M14.2 14.2L16 16M4 16l1.8-1.8M14.2 5.8L16 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-  book: '<svg viewBox="0 0 40 40"><path d="M8 8h10a4 4 0 0 1 4 4v20a3 3 0 0 0-3-3H8zM32 8H22a4 4 0 0 0-4 4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M28 22v10M23 27h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  menu: '<svg viewBox="0 0 20 20"><path d="M7 5.5h10M7 10h10M7 14.5h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="3.4" cy="5.5" r="1.25" fill="currentColor"/><circle cx="3.4" cy="10" r="1.25" fill="currentColor"/><circle cx="3.4" cy="14.5" r="1.25" fill="currentColor"/></svg>',
+  list: '<svg viewBox="0 0 20 20"><path d="M7 5.5h10M7 10h10M7 14.5h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="3.4" cy="5.5" r="1.2" fill="currentColor"/><circle cx="3.4" cy="10" r="1.2" fill="currentColor"/><circle cx="3.4" cy="14.5" r="1.2" fill="currentColor"/></svg>',
+  textformat: '<svg viewBox="0 0 22 20"><path d="M1.5 16l4.5-12 4.5 12M3.1 12h5.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.5 9.2v6.8M19.5 12.6c0-2-1.3-3.4-3.1-3.4s-3.1 1.5-3.1 3.5 1.3 3.5 3.1 3.5 3.1-1.4 3.1-3.6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  sliders: '<svg viewBox="0 0 20 20"><path d="M3 6h8M15 6h2M3 14h2M9 14h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="13" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7" cy="14" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+  moon: '<svg viewBox="0 0 20 20"><path d="M16.5 12.3A7 7 0 0 1 7.7 3.5a7 7 0 1 0 8.8 8.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+  sun: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 1.8v2M10 16.2v2M1.8 10h2M16.2 10h2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  auto: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 2.8a7.2 7.2 0 0 1 0 14.4z" fill="currentColor"/></svg>',
+  plus: '<svg viewBox="0 0 20 20"><path d="M10 3.5v13M3.5 10h13" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
+  gear: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.3" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="6.3" cy="10" r="1.15" fill="currentColor"/><circle cx="10" cy="10" r="1.15" fill="currentColor"/><circle cx="13.7" cy="10" r="1.15" fill="currentColor"/></svg>',
+  more: '<svg viewBox="0 0 20 6" width="17" height="5"><circle cx="3" cy="3" r="1.9" fill="currentColor"/><circle cx="10" cy="3" r="1.9" fill="currentColor"/><circle cx="17" cy="3" r="1.9" fill="currentColor"/></svg>',
+  search: '<svg viewBox="0 0 18 18"><circle cx="7.5" cy="7.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M11.6 11.6L16 16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
+  sunSmall: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6" fill="currentColor"/><path d="M10 4v1.2M10 14.8V16M4 10h1.2M14.8 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  sunLarge: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.6" fill="currentColor"/><path d="M10 1.5v2.3M10 16.2v2.3M1.5 10h2.3M16.2 10h2.3M4 4l1.6 1.6M14.4 14.4L16 16M4 16l1.6-1.6M14.4 5.6L16 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
 };
+
+/** Sentence with the word at `offset` wrapped in <b> (used in lists and cards). */
+export function boldSentence(sentence, word, offset) {
+  const frag = markedSentence(sentence, word, offset);
+  const m = frag.querySelector?.('mark');
+  if (m) { const b = document.createElement('b'); b.textContent = m.textContent; m.replaceWith(b); }
+  return frag;
+}

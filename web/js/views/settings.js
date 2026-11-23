@@ -10,19 +10,19 @@ export async function openSettings() {
     const list = await availableProviders();
     const cur = await currentProvider();
     clear(body);
-    body.append(h('div', { class: 'ws-label', style: { margin: '6px 4px 8px' } }, 'Translation service'));
+    body.append(h('div', { class: 'group-label' }, 'Translation'));
     const group = h('div', { class: 'group', role: 'radiogroup' });
     for (const { provider, available } of list) {
       if (provider.id === 'mock' && !available) continue;
       const row = h('button', { class: 'group-row radio-row', role: 'radio', 'aria-checked': String(cur?.id === provider.id), disabled: !available },
         h('span', {}, provider.name, h('small', {}, available ? provider.description : `Not available here. ${provider.description}`)),
-        h('span', { class: 'check' }, '✓'));
+        h('span', { class: 'check', 'aria-hidden': 'true' }, '✓'));
       row.onclick = () => { setPreferredProvider(provider.id); draw(); };
       group.append(row);
     }
     body.append(group,
       h('p', { class: 'group-caption' }, 'Each word is sent with its full sentence, so the translation matches how the word is used. Results are cached, so the same word in the same sentence is never translated twice.'),
-      h('div', { class: 'ws-label', style: { margin: '6px 4px 8px' } }, 'Saved words'),
+      h('div', { class: 'group-label' }, 'Saved Words'),
       h('div', { class: 'group' }, h('div', { class: 'group-row' }, h('span', {}, 'Stored in'),
         h('span', { class: 'muted' }, vocab.kind === 'cloud' ? 'Your Claude account' : vocab.kind === 'local' ? 'This browser' : 'Connecting…'))),
     );

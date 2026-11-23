@@ -70,11 +70,11 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTopSh
 export function confirmSheet({ title, message, confirmLabel = 'Delete', danger = true }) {
   return new Promise((resolve) => {
     let answered = false;
-    const yes = h('button', { class: `pill-btn${danger ? ' danger' : ''}` }, confirmLabel);
-    const no = h('button', { class: 'pill-btn secondary' }, 'Cancel');
+    const yes = h('button', { class: `btn block${danger ? ' destructive' : ''}` }, confirmLabel);
+    const no = h('button', { class: 'btn secondary block' }, 'Cancel');
     const s = openSheet({
       title,
-      content: h('div', { class: 'confirm' }, h('p', {}, message), h('div', { class: 'row-btns' }, no, yes)),
+      content: h('div', { class: 'confirm' }, h('p', {}, message), h('div', { class: 'row-btns' }, yes, no)),
       onClose: () => { if (!answered) resolve(false); },
     });
     yes.onclick = () => { answered = true; resolve(true); s.close(); };

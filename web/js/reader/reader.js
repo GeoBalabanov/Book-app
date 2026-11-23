@@ -41,16 +41,15 @@ class Reader {
     this.loading = h('div', { class: 'reader-loading' }, 'Opening book…');
     this.dim = h('div', { class: 'reader-dim' });
     this.titleEl = h('div', { class: 'reader-title' }, this.meta.title);
-    const back = h('button', { class: 'r-btn', 'aria-label': 'Back to Library', html: icons.back, onclick: () => this.close() });
-    const tocBtn = h('button', { class: 'r-btn', 'aria-label': 'Contents', html: icons.list, onclick: () => this.openToc() });
-    this.aaBtn = h('button', { class: 'r-btn text', 'aria-label': 'Themes & Settings', 'aria-expanded': 'false', onclick: () => this.toggleAa() }, 'Aa');
-    this.top = h('div', { class: 'reader-top' }, back, this.titleEl, tocBtn, this.aaBtn);
+    const close = h('button', { class: 'r-round', 'aria-label': 'Back to Library', html: icons.close, onclick: () => this.close() });
+    this.top = h('div', { class: 'reader-top' }, close, this.titleEl, h('span'));
     this.scrub = h('input', { type: 'range', min: '0', max: '1000', step: '1', id: 'reader-scrub', 'aria-label': 'Book position' });
-    this.scrubLabel = h('div', { class: 'page-info' });
     this.pageInfo = h('div', { class: 'page-info' });
-    this.bottom = h('div', { class: 'reader-bottom' }, h('div', { class: 'scrub' }, this.scrub, this.scrubLabel), this.pageInfo);
+    this.bottom = h('div', { class: 'reader-bottom' }, h('div', { class: 'scrub' }, this.scrub), this.pageInfo);
+    this.menuBtn = h('button', { class: 'r-round', 'aria-label': 'Reading menu', 'aria-expanded': 'false', html: icons.menu, onclick: () => this.toggleMenu() });
+    this.fab = h('div', { class: 'reader-fab' }, this.menuBtn);
     this.root = h('div', { class: 'reader', role: 'region', 'aria-label': `Reading ${this.meta.title}` },
-      this.viewport, this.loading, this.dim, this.top, this.bottom);
+      this.viewport, this.loading, this.dim, this.top, this.bottom, this.fab);
     document.getElementById('reader-root').append(this.root);
     document.getElementById('app').setAttribute('aria-hidden', 'true');
     this.applyTheme();
@@ -258,15 +257,16 @@ class Reader {
   updateInfo() {
     const left = this.pages - 1 - this.page;
     this.pageInfo.textContent = left === 0 ? 'Last page in chapter' : `${left} ${left === 1 ? 'page' : 'pages'} left in chapter`;
-    const pct = Math.round(this.bookProgress() * 100);
-    const ch = this.chapterTitle();
-    this.scrubLabel.textContent = ch ? `${ch} · ${pct}%` : `${pct}%`;
-    if (!this.scrubbing) this.scrub.value = String(Math.round(this.bookProgress() * 1000));
+    this.pageInfo.textContent = this.chromeVisible ? `${this.pageInfo.textContent} · ${Math.round(this.bookProgress() * 100)}%` : this.pageInfo.textContent;
+    if (!this.scrubbing) {
+      this.scrub.value = String(Math.round(this.bookProgress() * 1000));
+      this.scrub.style.setProperty('--pct', `${this.bookProgress() * 100}%`);
+    }
   }
 
   saveLocation = debounce(() => {
     const fraction = this.pages > 0 ? this.page / this.pages : 0;
-    library.saveLocation(this.meta.id, { chapter: this.chapter, fraction }, this.bookProgress());
+    library.saveLocation(this.meta.id, { chapter: this.chapter, fraction }, this.bookProgress(), this.chapterTitle());
   }, 500);
 
   refreshUnderlines() { underlineSaved(this.content, vocab.savedForms()); }
@@ -277,6 +277,7 @@ class Reader {
     this.chromeVisible = visible;
     this.root.classList.toggle('chrome-hidden', !visible);
     if (!visible) this.closeAa();
+    if (this.g) this.updateInfo();
   }
 
   openToc() {
@@ -285,7 +286,8 @@ class Reader {
     let current = null;
     for (const t of this.epub.toc) if (t.spineIndex <= this.chapter) current = t;
     for (const t of this.epub.toc) {
-      const btn = h('button', { class: `lvl${Math.min(2, t.level)}`, 'aria-current': t === current ? 'true' : 'false' },
+      const isPart = /^part\b/i.test(t.label);
+      const btn = h('button', { class: `lvl${Math.min(2, t.level)}${isPart ? ' part' : ''}`, 'aria-current': t === current ? 'true' : 'false' },
         h('span', {}, t.label));
       btn.onclick = async () => {
         sheet.close();
@@ -294,73 +296,102 @@ class Reader {
       };
       list.append(h('li', {}, btn));
     }
-    const sheet = openSheet({ title: 'Contents', content: list });
+    const sheet = openSheet({ title: this.meta.title, content: list });
     setTimeout(() => list.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'center' }), 60);
   }
 
-  toggleAa() { if (this.aa) this.closeAa(); else this.openAa(); }
-
+  /** Close whichever overlay (menu or settings panel) is open. */
   closeAa() {
     if (!this.aa) return;
     this.aa.remove();
     this.aa = null;
-    this.aaBtn.setAttribute('aria-expanded', 'false');
+    this.menuBtn.setAttribute('aria-expanded', 'false');
   }
 
-  openAa() {
+  #overlay(el) {
+    this.closeAa();
+    el.addEventListener('pointerdown', (e) => e.stopPropagation());
+    el.addEventListener('pointerup', (e) => e.stopPropagation());
+    this.aa = el;
+    this.root.append(el);
+  }
+
+  toggleMenu() {
+    if (this.aa?.classList.contains('r-menu')) { this.closeAa(); return; }
+    const pct = Math.round(this.bookProgress() * 100);
+    const item = (label, icon, fn) => h('button', { onclick: () => { this.closeAa(); fn(); } }, h('span', {}, label), h('span', { html: icon }));
+    const menu = h('div', { class: 'r-menu', role: 'menu', 'aria-label': 'Reading menu' },
+      h('div', { class: 'menu-progress' }, h('b', {}, this.chapterTitle() || this.meta.title), h('span', {}, `${pct}% of book`)),
+      item('Contents', icons.list, () => this.openToc()),
+      item('Themes & Settings', icons.textformat, () => this.openAa()),
+    );
+    this.#overlay(menu);
+    this.menuBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  openAa(view = 'main') {
+    const panel = h('div', { class: 'r-panel', role: 'dialog', 'aria-label': 'Themes & Settings' });
     const set = (patch, layoutChange) => {
       readerSettings.set(patch);
       if (layoutChange) this.relayout(); else this.applyTheme();
-      renderPop();
+      render();
     };
-    const pop = h('div', { class: 'aa-pop', role: 'dialog', 'aria-label': 'Themes & Settings' });
-    pop.addEventListener('pointerdown', (e) => e.stopPropagation());
-    pop.addEventListener('pointerup', (e) => e.stopPropagation());
-    const renderPop = () => {
+    const head = (title, withBack) => h('div', { class: 'panel-head' },
+      withBack ? h('button', { class: 'back', 'aria-label': 'Back', html: icons.back, onclick: () => { view = 'main'; render(); } }) : null,
+      h('h2', {}, title),
+      h('button', { class: 'sheet-close', 'aria-label': 'Close', html: icons.close, onclick: () => this.closeAa() }));
+    const seg = (items, cur, onPick) => h('div', { class: 'seg', role: 'group' },
+      items.map(([v, label]) => h('button', { 'aria-pressed': String(v === cur), onclick: () => onPick(v) }, label)));
+
+    const render = () => {
       const st = readerSettings.get();
-      clear(pop);
-      const bright = h('input', { type: 'range', min: '0.3', max: '1', step: '0.01', value: String(st.brightness), 'aria-label': 'Brightness', id: 'aa-brightness' });
-      bright.oninput = () => { readerSettings.set({ brightness: Number(bright.value) }); this.applyTheme(); };
-      const size = h('input', { type: 'range', min: '14', max: '32', step: '1', value: String(st.fontSize), 'aria-label': 'Font size', id: 'aa-size' });
-      size.onchange = () => set({ fontSize: Number(size.value) }, true);
-      const seg = (items, cur, onPick) => h('div', { class: 'aa-seg', role: 'group' },
-        items.map(([v, label]) => h('button', { 'aria-pressed': String(v === cur), onclick: () => onPick(v) }, label)));
-      const dark = isDark(st.appearance);
-      const tiles = h('div', { class: 'themes' }, Object.entries(THEMES).map(([key, t]) => {
-        const p = dark ? t.dark : t.light;
-        const tile = h('button', { class: 'theme-tile', 'aria-pressed': String(st.theme === key), 'aria-label': `${t.name} theme` },
-          h('b', {}, 'Aa'), h('span', {}, t.name));
-        tile.style.setProperty('--t-bg', p.bg);
-        tile.style.setProperty('--t-fg', p.fg);
-        tile.style.setProperty('--t-font', FONTS[t.font].stack);
-        tile.style.setProperty('--t-weight', String(t.weight));
-        if (p.texture) tile.style.backgroundImage = p.texture;
-        tile.onclick = () => set({ theme: key, font: 'original' }, true);
-        return tile;
-      }));
-      const fonts = h('div', { class: 'font-list', role: 'group', 'aria-label': 'Font' }, Object.entries(FONTS).map(([key, f]) => {
-        const stack = f.stack || FONTS[(THEMES[st.theme] || THEMES.original).font].stack;
-        return h('button', { class: 'font-opt', 'aria-pressed': String(st.font === key), style: { fontFamily: stack }, onclick: () => set({ font: key }, true) }, f.name);
-      }));
-      pop.append(
-        h('div', { class: 'aa-title' }, h('span', {}, 'Themes & Settings')),
-        h('div', { class: 'aa-row' }, h('span', { html: icons.sunSmall }), bright, h('span', { html: icons.sunLarge })),
-        h('div', { class: 'size-row' }, h('span', { class: 'small' }, 'A'), size, h('span', { class: 'large' }, 'A')),
-        seg([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], st.appearance, (v) => set({ appearance: v }, false)),
-        tiles,
-        h('div', { class: 'aa-title' }, h('span', {}, 'Line spacing')),
-        seg([[1.35, 'Compact'], [1.5, 'Normal'], [1.75, 'Loose']], st.lineHeight, (v) => set({ lineHeight: v }, true)),
-        seg([[false, 'Ragged right'], [true, 'Justified']], st.justify, (v) => set({ justify: v }, true)),
-        h('div', { class: 'aa-title' }, h('span', {}, 'Font')),
-        fonts,
-      );
-      // two-item segmented control
-      pop.querySelectorAll('.aa-seg').forEach((el) => { el.style.gridTemplateColumns = `repeat(${el.children.length}, 1fr)`; });
+      clear(panel);
+      if (view === 'main') {
+        const modes = ['auto', 'light', 'dark'];
+        const modeIcon = { auto: icons.auto, light: icons.sun, dark: icons.moon }[st.appearance];
+        const modeLabel = { auto: 'Appearance: match device', light: 'Appearance: light', dark: 'Appearance: dark' }[st.appearance];
+        const dark = isDark(st.appearance);
+        panel.append(
+          head('Themes & Settings'),
+          h('div', { class: 'ctrl-row' },
+            h('div', { class: 'capsule' },
+              h('button', { class: 'a-small', 'aria-label': 'Smaller text', disabled: st.fontSize <= 14, onclick: () => set({ fontSize: Math.max(14, st.fontSize - 1) }, true) }, 'A'),
+              h('button', { class: 'a-large', 'aria-label': 'Larger text', disabled: st.fontSize >= 32, onclick: () => set({ fontSize: Math.min(32, st.fontSize + 1) }, true) }, 'A')),
+            h('div', { class: 'capsule mode-btn' },
+              h('button', { 'aria-label': modeLabel, title: modeLabel, html: modeIcon, onclick: () => set({ appearance: modes[(modes.indexOf(st.appearance) + 1) % 3] }, false) }))),
+          h('div', { class: 'themes' }, Object.entries(THEMES).map(([key, t]) => {
+            const p = dark ? t.dark : t.light;
+            const tile = h('button', { class: 'theme-tile', 'aria-pressed': String(st.theme === key), 'aria-label': `${t.name} theme` },
+              h('b', {}, 'Aa'), h('span', {}, t.name));
+            tile.style.setProperty('--t-bg', p.bg);
+            tile.style.setProperty('--t-fg', p.fg);
+            tile.style.setProperty('--t-font', FONTS[t.font].stack);
+            tile.style.setProperty('--t-weight', String(t.weight));
+            if (p.texture) tile.style.backgroundImage = p.texture;
+            tile.onclick = () => set({ theme: key, font: 'original' }, true);
+            return tile;
+          })),
+          h('button', { class: 'customize', onclick: () => { view = 'customize'; render(); } }, h('span', { html: icons.sliders }), 'Customize'),
+        );
+      } else {
+        const bright = h('input', { type: 'range', min: '0.3', max: '1', step: '0.01', value: String(st.brightness), 'aria-label': 'Brightness', id: 'aa-brightness' });
+        bright.oninput = () => { readerSettings.set({ brightness: Number(bright.value) }); this.applyTheme(); };
+        const themeFont = FONTS[(THEMES[st.theme] || THEMES.original).font];
+        panel.append(
+          head('Customize', true),
+          h('div', { class: 'panel-group' },
+            h('div', { class: 'panel-row' }, h('span', { html: icons.sunSmall }), bright, h('span', { html: icons.sunLarge }))),
+          h('div', { class: 'panel-group' },
+            h('div', { class: 'panel-row' }, h('span', {}, 'Line spacing'), seg([[1.35, 'Tight'], [1.5, 'Normal'], [1.75, 'Loose']], st.lineHeight, (v) => set({ lineHeight: v }, true))),
+            h('div', { class: 'panel-row' }, h('span', {}, 'Justify text'), seg([[false, 'Off'], [true, 'On']], st.justify, (v) => set({ justify: v }, true)))),
+          h('div', { class: 'panel-group font-list', role: 'group', 'aria-label': 'Font' }, Object.entries(FONTS).map(([key, f]) =>
+            h('button', { class: 'font-opt', 'aria-pressed': String(st.font === key), style: { fontFamily: f.stack || themeFont.stack }, onclick: () => set({ font: key }, true) },
+              key === 'original' ? `Original (${themeFont.name})` : f.name))),
+        );
+      }
     };
-    renderPop();
-    this.aa = pop;
-    this.aaBtn.setAttribute('aria-expanded', 'true');
-    this.root.append(pop);
+    render();
+    this.#overlay(panel);
   }
 
   // ---------- Input ----------
@@ -371,7 +402,7 @@ class Reader {
 
     const down = (e) => {
       if (e.button > 0 || this.crossing) return;
-      if (e.target.closest('.reader-top, .reader-bottom .scrub, .aa-pop')) return;
+      if (e.target.closest('.reader-top, .reader-bottom .scrub, .reader-fab, .r-menu, .r-panel')) return;
       start = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
       dragging = false; pressed = false;
       clearTimeout(timer);
@@ -422,13 +453,14 @@ class Reader {
     vp.addEventListener('pointerup', up);
     vp.addEventListener('pointercancel', up);
     vp.addEventListener('contextmenu', (e) => e.preventDefault());
-    vp.addEventListener('dblclick', (e) => { if (!e.target.closest('.reader-top, .reader-bottom, .aa-pop')) this.lookupAt(e.clientX, e.clientY); });
+    vp.addEventListener('dblclick', (e) => { if (!e.target.closest('.reader-top, .reader-bottom, .reader-fab, .r-menu, .r-panel')) this.lookupAt(e.clientX, e.clientY); });
 
     this.scrub.addEventListener('input', () => {
       this.scrubbing = true;
       const loc = this.locationFromProgress(Number(this.scrub.value) / 1000);
       const t = [...this.epub.toc].reverse().find((x) => x.spineIndex <= loc.chapter);
-      this.scrubLabel.textContent = `${t ? `${t.label} · ` : ''}${Math.round(Number(this.scrub.value) / 10)}%`;
+      this.pageInfo.textContent = `${t ? `${t.label} · ` : ''}${Math.round(Number(this.scrub.value) / 10)}%`;
+      this.scrub.style.setProperty('--pct', `${Number(this.scrub.value) / 10}%`);
     });
     this.scrub.addEventListener('change', async () => {
       const loc = this.locationFromProgress(Number(this.scrub.value) / 1000);

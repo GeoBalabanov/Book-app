@@ -7,24 +7,23 @@ import { openSettings } from './settings.js';
 const coverUrls = new Map();
 function coverUrl(book) {
   if (!book.cover) return null;
-  const k = book.id;
-  if (!coverUrls.has(k)) coverUrls.set(k, URL.createObjectURL(book.cover));
-  return coverUrls.get(k);
+  if (!coverUrls.has(book.id)) coverUrls.set(book.id, URL.createObjectURL(book.cover));
+  return coverUrls.get(book.id);
 }
 
-const PALETTE = ['#7a3b2e', '#2f4858', '#5b4b8a', '#33673b', '#8a5a19', '#1f4e79', '#6d2e46'];
+// Muted cloth colors for books without a cover image.
+const CLOTH = ['#3b4a5a', '#5a3b3b', '#3f5446', '#4a4560', '#5b4a35', '#2f3a40'];
 function cover(book) {
   const url = coverUrl(book);
-  if (url) return h('div', { class: 'cover' }, h('img', { src: url, alt: '', loading: 'lazy', draggable: 'false' }));
-  const color = PALETTE[[...book.id].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
-  return h('div', { class: 'cover generated', style: { background: `linear-gradient(160deg, ${color}, #111)` } },
-    h('b', {}, book.title), h('span', {}, book.author || ''));
+  if (url) return h('div', { class: 'cover-slot' }, h('img', { src: url, alt: '', draggable: 'false' }));
+  const color = CLOTH[[...book.id].reduce((a, c) => a + c.charCodeAt(0), 0) % CLOTH.length];
+  return h('div', { class: 'cover-slot' }, h('div', { class: 'cover-gen', style: { '--gen': color } }, h('b', {}, book.title), h('span', {}, book.author || '')));
 }
 
-function statusText(book) {
-  if (!book.progress) return { text: 'NEW', cls: 'status new' };
-  if (book.progress >= 0.995) return { text: 'Finished', cls: 'status' };
-  return { text: `${Math.max(1, Math.round(book.progress * 100))}%`, cls: 'status' };
+function statusOf(book) {
+  if (!book.progress) return h('span', { class: 'status new' }, 'NEW');
+  if (book.progress >= 0.995) return h('span', { class: 'status' }, 'Finished');
+  return h('span', { class: 'status' }, `${Math.max(1, Math.round(book.progress * 100))}%`);
 }
 
 export async function renderLibrary(root) {
@@ -33,13 +32,13 @@ export async function renderLibrary(root) {
     const files = [...fileInput.files];
     fileInput.value = '';
     for (const f of files) {
-      toast(`Importing “${f.name}”…`, 4000);
+      toast(`Importing ${f.name}…`, 4000);
       try {
         const meta = await library.addFromBlob(f);
         toast(`Added “${meta.title}”`);
       } catch (e) {
         console.error(e);
-        toast(e.message || `“${f.name}” couldn’t be imported.`, 4000);
+        toast(e.message || `${f.name} couldn’t be imported.`, 4000);
       }
     }
   });
@@ -52,40 +51,45 @@ export async function renderLibrary(root) {
     clear(page);
     page.append(
       h('div', { class: 'nav-row' },
-        h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: icons.gear, onclick: openSettings }),
-        h('button', { class: 'icon-btn', 'aria-label': 'Import EPUB', html: icons.plus, onclick: () => fileInput.click() })),
+        h('button', { class: 'glyph-btn', 'aria-label': 'Import EPUB', title: 'Import EPUB', html: icons.plus, onclick: () => fileInput.click() }),
+        h('button', { class: 'glyph-btn', 'aria-label': 'Settings', title: 'Settings', html: icons.gear, onclick: openSettings })),
       h('h1', { class: 'large-title' }, 'Library'),
     );
 
-    const current = books.find((b) => b.lastOpenedAt && b.progress < 0.995) || books[0];
-    if (current) {
-      const pct = Math.round((current.progress || 0) * 100);
-      page.append(
-        h('h2', { class: 'section-title' }, current.lastOpenedAt ? 'Continue Reading' : 'Start Reading'),
-        h('button', { class: 'continue', onclick: () => openReader(current.id), 'aria-label': `Open ${current.title}` },
-          cover(current),
-          h('div', { class: 'continue-meta' },
-            h('span', { class: 'kicker' }, current.lastOpenedAt ? `${pct}% read` : 'Sample book'),
-            h('h3', {}, current.title),
-            h('span', { class: 'author' }, current.author || ''),
-            h('div', { class: 'progress-line' }, h('div', { class: 'progress-track' }, h('i', { style: { width: `${pct}%` } })), `${pct}%`),
-          )),
-      );
+    if (!books.length) {
+      page.append(h('div', { class: 'empty' },
+        h('h3', {}, 'Your library is empty'),
+        h('p', {}, 'Import an EPUB from Files to start reading.'),
+        h('button', { class: 'btn', onclick: () => fileInput.click() }, 'Import EPUB')));
+      return;
     }
 
-    page.append(h('h2', { class: 'section-title' }, 'All Books', h('small', {}, `${books.length} ${books.length === 1 ? 'book' : 'books'}`)));
+    const current = books.find((b) => b.lastOpenedAt && b.progress < 0.995) || books[0];
+    const started = !!current.lastOpenedAt;
+    const pct = Math.round((current.progress || 0) * 100);
+    page.append(
+      h('div', { class: 'section-head' }, h('h2', {}, started ? 'Continue Reading' : 'Start Reading')),
+      h('div', { class: 'hero' },
+        h('button', { class: 'hero-open', onclick: () => openReader(current.id), 'aria-label': `Open ${current.title}` }, cover(current)),
+        h('div', { class: 'hero-meta' },
+          h('span', { class: 'eyebrow' }, started && current.chapterLabel ? current.chapterLabel : current.author || ''),
+          h('h3', {}, current.title),
+          started ? h('span', { class: 'author' }, current.author || '') : null,
+          started ? h('div', { class: 'meter' }, h('div', { class: 'meter-track' }, h('i', { style: { width: `${Math.max(pct, 1)}%` } })), `${pct}%`) : null,
+          h('button', { class: 'btn small', onclick: () => openReader(current.id) }, started ? 'Continue' : 'Read'))),
+    );
+
+    page.append(h('div', { class: 'section-head' }, h('h2', {}, 'All Books'), h('span', {}, `${books.length} ${books.length === 1 ? 'Book' : 'Books'}`)));
     const grid = h('div', { class: 'grid' });
     for (const b of books) {
-      const st = statusText(b);
       const more = h('button', { class: 'more-btn', 'aria-label': `More actions for ${b.title}`, html: icons.more });
       more.onclick = () => bookActions(b);
       grid.append(h('div', { class: 'book' },
-        h('button', { class: 'book-open', onclick: () => openReader(b.id), 'aria-label': `Open ${b.title}` }, cover(b), h('span', { class: 'book-title-sm' }, b.title)),
-        h('div', { class: 'book-foot' }, h('span', { class: st.cls }, st.text), more)));
+        h('button', { class: 'book-open', onclick: () => openReader(b.id), 'aria-label': `Open ${b.title}` }, cover(b)),
+        h('div', { class: 'book-foot' }, statusOf(b), more)));
     }
-    grid.append(h('button', { class: 'import-tile', onclick: () => fileInput.click() }, h('span', { html: icons.book }), 'Import EPUB'));
     page.append(grid);
-    page.append(h('p', { class: 'footnote' }, 'Books you import are stored in this browser only. Your saved words sync with your Claude account when the app runs inside Claude.'));
+    page.append(h('p', { class: 'footnote' }, 'Imported books are kept in this browser. Saved words follow your Claude account.'));
   };
 
   const off = library.onChange(draw);
@@ -94,16 +98,18 @@ export async function renderLibrary(root) {
 }
 
 function bookActions(book) {
-  const remove = h('button', { class: 'pill-btn secondary', style: { color: 'var(--danger)', width: '100%' } }, 'Remove from Library');
+  const remove = h('button', { class: 'btn destructive block' }, 'Remove from Library');
+  const read = h('button', { class: 'btn secondary block' }, book.progress ? 'Continue Reading' : 'Read');
   const sheet = openSheet({
     title: book.title,
     content: h('div', { class: 'confirm' },
       h('p', {}, [book.author, book.progress ? `${Math.round(book.progress * 100)}% read` : 'Not started'].filter(Boolean).join(' · ')),
-      remove),
+      h('div', { class: 'row-btns' }, read, remove)),
   });
+  read.onclick = () => { sheet.close(); openReader(book.id); };
   remove.onclick = async () => {
     sheet.close();
-    if (await confirmSheet({ title: 'Remove book?', message: `“${book.title}” will be removed from this browser. Saved words from it stay in your vocabulary.`, confirmLabel: 'Remove' })) {
+    if (await confirmSheet({ title: 'Remove Book?', message: `“${book.title}” will be removed from this browser. Words you saved from it stay in Vocabulary.`, confirmLabel: 'Remove' })) {
       await library.remove(book.id);
       toast('Book removed');
     }

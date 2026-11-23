@@ -77,10 +77,11 @@ export const library = {
     return EpubBook.open(blob);
   },
 
-  async saveLocation(id, location, progress) {
+  async saveLocation(id, location, progress, chapterLabel = '') {
     const meta = await idb.get('books', id);
     if (!meta) return;
     meta.location = location;
+    meta.chapterLabel = chapterLabel;
     meta.progress = progress;
     meta.lastOpenedAt = Date.now();
     await idb.put('books', id, meta);
