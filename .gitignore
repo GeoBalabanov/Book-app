@@ -1,0 +1,9 @@
+# Secrets
+web/.env
+.env
+ios/**/Secrets.xcconfig
+
+# Tooling
+node_modules/
+.DS_Store
+*.log

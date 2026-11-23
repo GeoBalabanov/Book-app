@@ -1,0 +1,35 @@
+<title>Lexi Reader</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;0,7..72,700;1,7..72,400&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="app.css">
+
+<div id="app" class="app">
+  <main id="tab-root" class="tab-root" aria-live="polite">
+    <div class="boot">Loading library…</div>
+  </main>
+
+  <nav class="tabbar" id="tabbar" aria-label="Sections">
+    <a class="tab" href="#library" data-tab="library">
+      <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 5.5h4.2v17H5zM10.8 5.5H15v17h-4.2zM17 6.6l4-1.1 4.2 15.7-4 1.1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      <span>Library</span>
+    </a>
+    <a class="tab" href="#vocabulary" data-tab="vocabulary">
+      <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M6 5.5h13.5a2.5 2.5 0 0 1 2.5 2.5v14.5H8.5A2.5 2.5 0 0 1 6 20z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M6 20a2.5 2.5 0 0 1 2.5-2.5H22M10.5 10h7M10.5 13.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>Vocabulary</span>
+    </a>
+    <a class="tab" href="#flashcards" data-tab="flashcards">
+      <svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4.5" y="9" width="16" height="13.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 5.5h13a2.5 2.5 0 0 1 2.5 2.5v10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>Flashcards</span>
+      <b class="badge" id="due-badge" hidden></b>
+    </a>
+  </nav>
+</div>
+
+<div id="reader-root"></div>
+<div id="sheet-root"></div>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script type="module" src="js/app.js"></script>
