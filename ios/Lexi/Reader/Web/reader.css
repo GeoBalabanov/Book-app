@@ -32,6 +32,9 @@ body { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; -web
   column-fill: auto; will-change: transform; orphans: 2; widows: 2;
   font-variant-numeric: oldstyle-nums proportional-nums; font-kerning: normal; text-rendering: optimizeLegibility;
 }
+/* WebKit only paints ::highlight() in selectable text; selection itself is
+   blocked in reader.js (selectstart), so nothing can actually be selected. */
+.reader-content { -webkit-user-select: text; user-select: text; }
 .reader-content.animating { transition: transform .34s cubic-bezier(.25,.8,.25,1); }
 .reader-content * { max-width: 100%; }
 .reader-content p { margin: 0; text-indent: 1.4em; }
@@ -51,6 +54,4 @@ body { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; -web
 .reader-content a { color: inherit; text-decoration: underline; text-decoration-color: var(--r-muted); text-underline-offset: 2px; }
 .reader-content table { border-collapse: collapse; font-size: .9em; }
 .reader-content td, .reader-content th { padding: .2em .4em; }
-::highlight(lexi-saved) { text-decoration: underline; text-decoration-color: var(--r-accent); text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
-::highlight(lexi-lookup) { background-color: var(--r-select); color: inherit; }
 .message { height: 100%; display: grid; place-items: center; color: var(--r-muted); font: 15px -apple-system, system-ui, sans-serif; text-align: center; }

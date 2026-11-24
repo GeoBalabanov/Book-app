@@ -1,4 +1,5 @@
 import SwiftUI
+import OSLog
 import WebKit
 
 /// State and web-view bridge for one open book.
@@ -15,6 +16,8 @@ final class ReaderModel {
     var chromeVisible = true
     var overlay: Overlay?
     var showContents = false
+    /// The word being looked up; drives the Look Up sheet.
+    var lookup: LookupRequest?
 
     private(set) var chapter = 0
     private(set) var page = 0
@@ -38,6 +41,8 @@ final class ReaderModel {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(BookSchemeHandler(), forURLScheme: BookSchemeHandler.scheme)
         config.userContentController.add(MessageProxy(self), name: "lexi")
+        // No WebKit selection, loupe or edit menu: lookups come from our own long-press.
+        config.preferences.isTextInteractionEnabled = false
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.scrollView.isScrollEnabled = false
         wv.scrollView.contentInsetAdjustmentBehavior = .never
@@ -121,7 +126,11 @@ final class ReaderModel {
     func longPress(at p: CGPoint) {
         guard ready else { return }
         if overlay != nil { withAnimation(.easeOut(duration: 0.2)) { overlay = nil }; return }
-        // Word lookup arrives in step 2.
+        call("Lexi.lookupAt(\(p.x), \(p.y))")
+    }
+
+    func lookupDismissed() {
+        call("Lexi.clearLookup()")
     }
 
     func go(to entry: TocEntry) {
@@ -147,7 +156,7 @@ final class ReaderModel {
     fileprivate func handle(_ body: Any) {
         guard let msg = body as? [String: Any], let type = msg["type"] as? String else { return }
         #if DEBUG
-        if type != "location" { print("[reader] message", type, String(format: "%.2fs", Date().timeIntervalSince(openedAt))) }
+        if type != "location" { readerLog("message \(type) \(String(format: "%.2fs", Date().timeIntervalSince(openedAt)))") }
         #endif
         switch type {
         case "loaded":
@@ -173,13 +182,18 @@ final class ReaderModel {
             progress = msg["progress"] as? Double ?? 0
             let fraction = msg["fraction"] as? Double ?? 0
             scheduleSave(fraction: fraction)
+        case "lookup":
+            guard let word = msg["word"] as? String, let sentence = msg["sentence"] as? String else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            lookup = LookupRequest(word: word, sentence: sentence, offset: msg["offset"] as? Int ?? 0,
+                                   bookTitle: book.title, bookID: book.id)
         case "toggleChrome":
             toggleChrome()
         case "dismissOverlay":
             overlay = nil
         case "log":
             #if DEBUG
-            print("[reader.js]", msg["message"] ?? "")
+            readerLog("js: \(msg["message"] ?? "")")
             #endif
         case "openURL":
             if let s = msg["url"] as? String, let url = URL(string: s) { UIApplication.shared.open(url) }
@@ -214,7 +228,7 @@ final class ReaderModel {
     func call(_ js: String) {
         webView?.evaluateJavaScript(js) { _, error in
             #if DEBUG
-            if let error, (error as NSError).code != 5 { print("[reader] JS error for \(js.prefix(60)): \(error)") }
+            if let error, (error as NSError).code != 5 { readerLog("JS error for \(js.prefix(60)): \(error)") }
             #endif
         }
     }
@@ -250,12 +264,12 @@ struct ReaderWebView: UIViewRepresentable {
 private final class NavLogger: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         #if DEBUG
-        print("[reader] provisional navigation failed: \(error)")
+        readerLog("provisional navigation failed: \(error)")
         #endif
     }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         #if DEBUG
-        print("[reader] navigation failed: \(error)")
+        readerLog("navigation failed: \(error)")
         #endif
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -316,4 +330,12 @@ final class ReaderGestures: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
     }
+}
+
+/// Debug logging to the unified log (visible with `log stream --predicate 'subsystem == "lexi"'`).
+func readerLog(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    let text = message()
+    Logger(subsystem: "lexi", category: "reader").notice("\(text, privacy: .public)")
+    #endif
 }

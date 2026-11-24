@@ -59,6 +59,9 @@ private struct ReaderScreen: View {
         .sheet(isPresented: $model.showContents) {
             ContentsSheet(model: model)
         }
+        .sheet(item: $model.lookup, onDismiss: { model.lookupDismissed() }) { request in
+            LookUpSheet(request: request)
+        }
         .onAppear { applyTheme(layoutChange: false) }
         .onChange(of: settings) { old, new in
             let layout = old.theme != new.theme || old.font != new.font || old.fontSize != new.fontSize

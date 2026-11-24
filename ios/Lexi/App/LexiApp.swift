@@ -12,7 +12,7 @@ struct LexiApp: App {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
         do {
-            container = try ModelContainer(for: Book.self)
+            container = try ModelContainer(for: Book.self, CachedTranslation.self)
         } catch {
             fatalError("Could not open the Lexi data store: \(error)")
         }

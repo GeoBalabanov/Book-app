@@ -97,8 +97,16 @@
 
   // ---------- Theme & layout ----------
 
+  // ::highlight() rules get concrete colours: WebKit doesn't resolve custom
+  // properties from the page inside highlight pseudo-elements.
+  const highlightStyle = document.createElement('style');
+  document.head.append(highlightStyle);
+
   function applyTheme(vars, textured) {
     for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+    highlightStyle.textContent =
+      `::highlight(lexi-lookup) { background-color: ${vars['--r-select']}; color: inherit; }\n` +
+      `::highlight(lexi-saved) { text-decoration: underline; text-decoration-color: ${vars['--r-accent']}; text-decoration-thickness: 1.5px; text-underline-offset: 4px; }`;
     document.documentElement.style.setProperty('--r-bg', vars['--r-bg']);
     root.classList.toggle('paper', !!textured);
     const wide = window.innerWidth >= 900;
@@ -176,7 +184,8 @@
 
   // ---------- Chapters & pages ----------
 
-  async function loadChapter(index, { fraction = 0, toEnd = false, fragment = null } = {}) {
+  /** `textFraction`: a position saved by textFraction(); `fraction`: a rough share of the chapter's pages. */
+  async function loadChapter(index, { fraction = 0, textFraction: tf = null, toEnd = false, fragment = null } = {}) {
     index = Math.max(0, Math.min(state.spine.length - 1, index));
     let frag;
     try {
@@ -186,6 +195,7 @@
       frag.textContent = 'This section could not be displayed.';
     }
     state.chapter = index;
+    setLookupHighlight(null);
     content.replaceChildren(frag);
     content.style.transform = 'translateX(0)';
     for (const img of content.querySelectorAll('img')) {
@@ -193,6 +203,7 @@
     }
     layout();
     let page = toEnd ? state.pages - 1 : Math.floor(fraction * state.pages + 1e-6);
+    if (tf !== null && !toEnd) page = pageOfTextFraction(tf) ?? page;
     if (fragment) {
       const el = content.querySelector(`[id="epub-${index}-${CSS.escape(fragment)}"]`);
       if (el) page = pageOfRect(el.getBoundingClientRect());
@@ -261,13 +272,65 @@
     return { chapter: state.lengths.length - 1, fraction: 0.999 };
   }
 
+  /**
+   * Fraction (0..1) of the chapter's text before the first character on the
+   * current page. Uses page numbers from layout (pageOfRect is relative to the
+   * content box), so it is correct even while a page turn is still animating.
+   */
+  function textFraction() {
+    const target = state.page;
+    let total = 0, found = null;
+    const range = document.createRange();
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (found === null && n.data.trim()) {
+        range.selectNodeContents(n);
+        if ([...range.getClientRects()].some((r) => pageOfRect(r) >= target)) {
+          for (let i = 0; i < n.data.length; i += 4) {
+            range.setStart(n, i); range.setEnd(n, Math.min(n.data.length, i + 1));
+            if (pageOfRect(range.getBoundingClientRect()) >= target) { found = total + i; break; }
+          }
+          if (found === null) found = total;
+        }
+      }
+      total += n.data.length;
+    }
+    return total && found !== null ? found / total : 0;
+  }
+
+  /** The page that shows the character at `fraction` of the chapter's text. */
+  function pageOfTextFraction(fraction) {
+    let total = 0;
+    const nodes = [];
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n, total]); total += n.data.length; }
+    const target = Math.floor(fraction * total);
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const [n, start] = nodes[i];
+      if (target >= start) {
+        // Skip whitespace-only nodes, which have no useful position.
+        let j = i;
+        while (j < nodes.length - 1 && !nodes[j][0].data.trim()) j++;
+        const [node, nodeStart] = nodes[j];
+        const off = Math.max(0, Math.min(node.data.length - 1, target - nodeStart));
+        const range = document.createRange();
+        range.setStart(node, off);
+        range.setEnd(node, Math.min(node.data.length, off + 1));
+        const rect = range.getBoundingClientRect();
+        if (!rect.width && !rect.height) return null;
+        return pageOfRect(rect);
+      }
+    }
+    return null;
+  }
+
   function reportLocation() {
     post({
       type: 'location',
       chapter: state.chapter,
       page: state.page,
       pages: state.pages,
-      fraction: state.pages > 0 ? state.page / state.pages : 0,
+      fraction: textFraction(),
       progress: bookProgress(),
     });
   }
@@ -277,6 +340,7 @@
   // Touches are recognised natively (UIKit gesture recognizers on the web view)
   // and forwarded here, so WebKit's own selection and callouts never interfere.
   function bindEvents() {
+    document.addEventListener('selectstart', (e) => e.preventDefault());
     window.addEventListener('resize', relayout);
     document.fonts?.ready?.then(relayout);
   }
@@ -327,6 +391,127 @@
     await loadChapter(idx, { fragment: frag || null });
   }
 
+
+  // ---------- Words & sentences (ported from web/js/reader/selection.js) ----------
+
+  const BLOCK = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, dd, dt, td, th, figcaption, pre, div, section';
+  const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u;
+  const JOINER = /['’\-]/;
+
+  function indexText(block) {
+    const nodes = [];
+    let text = '';
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      nodes.push({ node: n, start: text.length });
+      text += n.data;
+    }
+    return { nodes, text };
+  }
+
+  function locate(nodes, abs) {
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (abs >= nodes[i].start) return { node: nodes[i].node, offset: Math.min(abs - nodes[i].start, nodes[i].node.data.length) };
+    }
+    return null;
+  }
+
+  function caretFromPoint(x, y) {
+    if (document.caretPositionFromPoint) {
+      const p = document.caretPositionFromPoint(x, y);
+      return p && { node: p.offsetNode, offset: p.offset };
+    }
+    if (document.caretRangeFromPoint) {
+      const r = document.caretRangeFromPoint(x, y);
+      return r && { node: r.startContainer, offset: r.startOffset };
+    }
+    return null;
+  }
+
+  function rangeContainsPoint(range, x, y, slop = 4) {
+    for (const r of range.getClientRects()) {
+      if (x >= r.left - slop && x <= r.right + slop && y >= r.top - slop && y <= r.bottom + slop) return true;
+    }
+    return false;
+  }
+
+  const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('en', { granularity: 'sentence' }) : null;
+
+  function sentenceBounds(text, index) {
+    // Source HTML wraps lines with newlines, which the segmenter treats as
+    // paragraph breaks. Replace each whitespace char with a space (same length).
+    text = text.replace(/\s/g, ' ');
+    if (segmenter) {
+      for (const seg of segmenter.segment(text)) {
+        if (index >= seg.index && index < seg.index + seg.segment.length) return [seg.index, seg.index + seg.segment.length];
+      }
+    }
+    let start = 0;
+    const re = /[.!?]["'’”)]*\s+(?=["'‘“(]?[A-Z])/g;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      const end = m.index + m[0].length;
+      if (end > index) return [start, end];
+      start = end;
+    }
+    return [start, text.length];
+  }
+
+  /** The word under (x, y), its sentence, and the word's offset in that sentence. */
+  function wordAtPoint(x, y) {
+    const caret = caretFromPoint(x, y);
+    if (!caret || caret.node.nodeType !== 3 || !content.contains(caret.node)) return null;
+    const block = caret.node.parentElement.closest(BLOCK) || content;
+    if (!content.contains(block)) return null;
+    const { nodes, text } = indexText(block);
+    const nodeInfo = nodes.find((n) => n.node === caret.node);
+    if (!nodeInfo) return null;
+    let i = nodeInfo.start + caret.offset;
+    if (!WORD_CHAR.test(text[i] || '') && WORD_CHAR.test(text[i - 1] || '')) i -= 1;
+    if (!WORD_CHAR.test(text[i] || '')) return null;
+
+    let s = i, e = i + 1;
+    while (s > 0 && (WORD_CHAR.test(text[s - 1]) || (JOINER.test(text[s - 1]) && WORD_CHAR.test(text[s - 2] || '')))) s--;
+    while (e < text.length && (WORD_CHAR.test(text[e]) || (JOINER.test(text[e]) && WORD_CHAR.test(text[e + 1] || '')))) e++;
+    const word = text.slice(s, e);
+    if (!/\p{L}/u.test(word)) return null;
+
+    const a = locate(nodes, s), b = locate(nodes, e);
+    const range = document.createRange();
+    range.setStart(a.node, a.offset);
+    range.setEnd(b.node, b.offset);
+    if (!rangeContainsPoint(range, x, y)) return null;
+
+    const [ss, se] = sentenceBounds(text, s);
+    const raw = text.slice(ss, se);
+    const sentence = raw.replace(/\s+/g, ' ').trim();
+    const prefix = raw.slice(0, s - ss).replace(/\s+/g, ' ').replace(/^\s+/, '');
+    return { word, sentence, offset: prefix.length, range };
+  }
+
+  const hasHighlights = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
+
+  /** WebKit doesn't repaint when a highlight is removed; nudge the content layer. */
+  function repaint() {
+    content.style.outline = '1px solid transparent';
+    requestAnimationFrame(() => { content.style.outline = ''; });
+  }
+
+  function setLookupHighlight(range) {
+    if (!hasHighlights) return;
+    if (range) CSS.highlights.set('lexi-lookup', new Highlight(range));
+    else if (CSS.highlights.has('lexi-lookup')) { CSS.highlights.delete('lexi-lookup'); repaint(); }
+  }
+
+  /** Long-press: highlight the word and report it to native code. */
+  function lookupAt(x, y) {
+    if (state.crossing) return false;
+    const hit = wordAtPoint(x, y);
+    if (!hit) { post({ type: 'log', message: `no word at ${x},${y}; caret=${!!caretFromPoint(x, y)}` }); return false; }
+    setLookupHighlight(hit.range);
+    post({ type: 'lookup', word: hit.word, sentence: hit.sentence, offset: hit.offset });
+    return true;
+  }
+
   // ---------- Native API ----------
 
   window.Lexi = {
@@ -341,7 +526,7 @@
       // (and the reading font) so the saved position maps to the right page.
       for (let i = 0; i < 60 && viewport.clientWidth < 50; i++) await wait(50);
       try { await Promise.race([document.fonts.ready, wait(800)]); } catch (e) { /* ignore */ }
-      await loadChapter(cfg.chapter || 0, { fraction: cfg.fraction || 0 });
+      await loadChapter(cfg.chapter || 0, { textFraction: cfg.fraction || 0 });
       post({ type: 'ready' });
     },
     setTheme(vars, textured, layoutChange) {
@@ -351,7 +536,8 @@
     goTo(chapter, fragment) { return loadChapter(chapter, { fragment: fragment || null }); },
     goToProgress(p) { const loc = locationFromProgress(p); return loadChapter(loc.chapter, { fraction: loc.fraction }); },
     locationLabel(p) { return locationFromProgress(p).chapter; },
-    next, prev, tap, dragStart, dragMove, dragEnd,
+    next, prev, tap, dragStart, dragMove, dragEnd, lookupAt,
+    clearLookup() { setLookupHighlight(null); },
   };
 
   post({ type: 'loaded' });
