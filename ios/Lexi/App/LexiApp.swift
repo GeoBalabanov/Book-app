@@ -12,7 +12,7 @@ struct LexiApp: App {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
         do {
-            container = try ModelContainer(for: Book.self, CachedTranslation.self)
+            container = try ModelContainer(for: Book.self, CachedTranslation.self, SavedWord.self)
         } catch {
             fatalError("Could not open the Lexi data store: \(error)")
         }
@@ -37,7 +37,7 @@ struct RootView: View {
         TabView {
             LibraryView(openBook: $openBook)
                 .tabItem { Label("Library", systemImage: "books.vertical") }
-            PlaceholderTab(title: "Vocabulary", message: "Words you save while reading will appear here.")
+            VocabularyView()
                 .tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
             PlaceholderTab(title: "Flashcards", message: "Review saved words with spaced repetition.")
                 .tabItem { Label("Flashcards", systemImage: "rectangle.on.rectangle.angled") }

@@ -26,6 +26,7 @@
     pages: 1,
     g: null,
     crossing: false,
+    savedForms: new Set(),
   };
 
   // ---------- Paths & chapter rendering ----------
@@ -101,6 +102,11 @@
   // properties from the page inside highlight pseudo-elements.
   const highlightStyle = document.createElement('style');
   document.head.append(highlightStyle);
+
+  function setInsets(i) {
+    if (!i) return;
+    for (const k of ['top', 'bottom', 'left', 'right']) root.style.setProperty(`--safe-${k}`, `${i[k] || 0}px`);
+  }
 
   function applyTheme(vars, textured) {
     for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
@@ -201,6 +207,10 @@
     for (const img of content.querySelectorAll('img')) {
       if (!img.complete) img.addEventListener('load', relayout, { once: true });
     }
+    // Fonts are only requested once text that uses them is in the page; lay out
+    // after they load so page counts (and restored positions) are final.
+    void content.offsetWidth; // start layout, which requests the fonts in use
+    try { await Promise.race([document.fonts.ready, wait(1500)]); } catch (e) { /* ignore */ }
     layout();
     let page = toEnd ? state.pages - 1 : Math.floor(fraction * state.pages + 1e-6);
     if (tf !== null && !toEnd) page = pageOfTextFraction(tf) ?? page;
@@ -209,6 +219,7 @@
       if (el) page = pageOfRect(el.getBoundingClientRect());
     }
     goPage(Math.max(0, Math.min(state.pages - 1, page)), false);
+    underlineSaved();
     post({ type: 'chapterLoaded', chapter: index });
   }
 
@@ -502,6 +513,33 @@
     else if (CSS.highlights.has('lexi-lookup')) { CSS.highlights.delete('lexi-lookup'); repaint(); }
   }
 
+  /** Underline every occurrence of a saved form (lowercased) in the current chapter. */
+  function underlineSaved() {
+    if (!hasHighlights) return;
+    const forms = state.savedForms;
+    if (!forms.size) {
+      if (CSS.highlights.has('lexi-saved')) { CSS.highlights.delete('lexi-saved'); repaint(); }
+      return;
+    }
+    const ranges = [];
+    const re = /[\p{L}][\p{L}\p{M}'’\-]*/gu;
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      re.lastIndex = 0;
+      for (let m = re.exec(n.data); m; m = re.exec(n.data)) {
+        const w = m[0].replace(/['’\-]+$/, '');
+        if (forms.has(w.toLowerCase())) {
+          const r = document.createRange();
+          r.setStart(n, m.index);
+          r.setEnd(n, m.index + w.length);
+          ranges.push(r);
+        }
+      }
+    }
+    CSS.highlights.set('lexi-saved', new Highlight(...ranges));
+    repaint();
+  }
+
   /** Long-press: highlight the word and report it to native code. */
   function lookupAt(x, y) {
     if (state.crossing) return false;
@@ -520,6 +558,8 @@
       state.spine = cfg.spine;
       state.lengths = cfg.lengths;
       state.total = cfg.lengths.reduce((a, b) => a + b, 0) || 1;
+      state.savedForms = new Set(cfg.savedForms || []);
+      setInsets(cfg.insets);
       applyTheme(cfg.vars, cfg.textured);
       bindEvents();
       // The web view can start loading before it is on screen; wait for a real size
@@ -538,6 +578,8 @@
     locationLabel(p) { return locationFromProgress(p).chapter; },
     next, prev, tap, dragStart, dragMove, dragEnd, lookupAt,
     clearLookup() { setLookupHighlight(null); },
+    setInsets(i) { setInsets(i); relayout(); },
+    setSavedForms(forms) { state.savedForms = new Set(forms); underlineSaved(); },
   };
 
   post({ type: 'loaded' });

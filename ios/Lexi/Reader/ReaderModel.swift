@@ -26,6 +26,8 @@ final class ReaderModel {
     var scrubbing: Double?           // book position while dragging the scrubber
 
     private var lastVars: [String: String] = [:]
+    private var savedForms: Set<String> = []
+    private var insets = EdgeInsets()
     private let openedAt = Date()
     private var pageLoaded = false
     private var saveTask: Task<Void, Never>?
@@ -129,6 +131,26 @@ final class ReaderModel {
         call("Lexi.lookupAt(\(p.x), \(p.y))")
     }
 
+    private var insetsJSON: [String: Double] {
+        ["top": insets.top, "bottom": insets.bottom, "left": insets.leading, "right": insets.trailing]
+    }
+
+    /// The window's safe-area insets, which frame the page margins.
+    func setInsets(_ new: EdgeInsets) {
+        guard new != insets else { return }
+        insets = new
+        guard pageLoaded else { return }
+        call("Lexi.setInsets(\(json(insetsJSON)))")
+    }
+
+    /// Words to underline; sent again whenever the saved list changes.
+    func setSavedForms(_ forms: Set<String>) {
+        guard forms != savedForms else { return }
+        savedForms = forms
+        guard pageLoaded else { return }   // Lexi.open sends them
+        call("Lexi.setSavedForms(\(json(Array(forms))))")
+    }
+
     func lookupDismissed() {
         call("Lexi.clearLookup()")
     }
@@ -170,6 +192,8 @@ final class ReaderModel {
                 "fraction": book.hasLocation ? book.locationFraction : 0,
                 "vars": lastVars.isEmpty ? s.cssVars(dark: false) : lastVars,
                 "textured": ReaderTheme.named(s.theme).textured,
+                "savedForms": Array(savedForms),
+                "insets": insetsJSON,
             ]
             call("Lexi.open(\(json(cfg)))")
         case "ready":

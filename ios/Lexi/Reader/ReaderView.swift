@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Full-screen reader: the paginated web view plus Apple Books–style chrome
@@ -26,6 +27,7 @@ struct ReaderView: View {
 
 private struct ReaderScreen: View {
     @Bindable var model: ReaderModel
+    @Query private var savedWords: [SavedWord]
     let systemScheme: ColorScheme
     let onClose: () -> Void
 
@@ -40,9 +42,13 @@ private struct ReaderScreen: View {
     var body: some View {
         ZStack {
             Color(css: palette.bg).ignoresSafeArea()
-            ReaderWebView(model: model)
-                .ignoresSafeArea()
-                .opacity(model.ready ? 1 : 0)
+            GeometryReader { geo in
+                ReaderWebView(model: model)
+                    .ignoresSafeArea()
+                    .onAppear { model.setInsets(geo.safeAreaInsets) }
+                    .onChange(of: geo.safeAreaInsets) { _, i in model.setInsets(i) }
+            }
+            .opacity(model.ready ? 1 : 0)
 
             if !model.ready {
                 Text("Opening book…")
@@ -62,7 +68,11 @@ private struct ReaderScreen: View {
         .sheet(item: $model.lookup, onDismiss: { model.lookupDismissed() }) { request in
             LookUpSheet(request: request)
         }
-        .onAppear { applyTheme(layoutChange: false) }
+        .onAppear {
+            applyTheme(layoutChange: false)
+            model.setSavedForms(savedWords.underlineForms)
+        }
+        .onChange(of: savedWords.underlineForms) { _, forms in model.setSavedForms(forms) }
         .onChange(of: settings) { old, new in
             let layout = old.theme != new.theme || old.font != new.font || old.fontSize != new.fontSize
                 || old.lineHeight != new.lineHeight || old.justify != new.justify

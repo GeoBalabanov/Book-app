@@ -81,3 +81,19 @@ final class TranslationCacheLookupTests: XCTestCase {
         XCTAssertEqual(service.calls, 2)
     }
 }
+
+@MainActor
+final class SavedWordTests: XCTestCase {
+    func testUnderlineFormsAndEntryLookup() throws {
+        let req = LookupRequest(word: "Ran", sentence: "He ran home.", offset: 3, bookTitle: "B", bookID: "b")
+        let res = LookupResult(word: "Ran", lemma: "run", partOfSpeech: "verb", translation: "избяга",
+                               dictionaryTranslation: "бягам", sentenceTranslation: "Той избяга вкъщи.", provider: "demo")
+        let w = SavedWord(request: req, result: res)
+        XCTAssertEqual([w].underlineForms, ["ran", "run"])
+        XCTAssertNotNil([w].entry(for: LookupRequest(word: "ran", sentence: "He ran home.", offset: 3)))
+        XCTAssertNil([w].entry(for: LookupRequest(word: "ran", sentence: "She ran.", offset: 4)))
+        XCTAssertEqual(w.ease, 2.5)
+        XCTAssertEqual(w.repetitions, 0)
+        XCTAssertLessThanOrEqual(w.due, .now)
+    }
+}

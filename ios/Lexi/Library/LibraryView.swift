@@ -250,16 +250,35 @@ struct ProgressMeter: View {
     }
 }
 
-/// Filled pill button in the label color (black in light mode, white in dark).
+/// Filled pill button in "ink" (near-black in light mode, near-white in dark),
+/// like the web app's `.btn`. Explicit colours: inside iOS 26 sheets, semantic
+/// `.primary` fills are drawn with vibrancy and look grey.
 struct InkButtonStyle: ButtonStyle {
     var small = false
+    var block = false
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: small ? 15 : 17, weight: .semibold))
-            .foregroundStyle(Color(.systemBackground))
-            .padding(.horizontal, small ? 16 : 24)
-            .frame(height: small ? 36 : 50)
-            .background(Color.primary, in: Capsule())
-            .opacity(configuration.isPressed ? 0.7 : 1)
+        InkLabel(configuration: configuration, small: small, block: block)
+    }
+
+    private struct InkLabel: View {
+        let configuration: Configuration
+        let small: Bool
+        let block: Bool
+        @Environment(\.colorScheme) private var scheme
+        @Environment(\.isEnabled) private var enabled
+
+        var body: some View {
+            let ink = scheme == .dark ? Color(red: 0.949, green: 0.949, blue: 0.969) : Color(red: 0.110, green: 0.110, blue: 0.118)
+            let onInk = scheme == .dark ? Color.black : Color.white
+            configuration.label
+                .font(.system(size: small ? 15 : 17, weight: .semibold))
+                .foregroundStyle(onInk)
+                .padding(.horizontal, small ? 16 : 24)
+                .frame(maxWidth: block ? .infinity : nil)
+                .frame(height: small ? 36 : 50)
+                .background(ink, in: Capsule())
+                .opacity(configuration.isPressed ? 0.7 : enabled ? 1 : 0.35)
+        }
     }
 }

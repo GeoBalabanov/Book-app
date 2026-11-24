@@ -6,33 +6,57 @@ import SwiftUI
 /// and the sentence in Bulgarian.
 struct LookUpSheet: View {
     let request: LookupRequest
+    /// Set when showing a word from Vocabulary: no lookup, and Delete instead of Save.
+    var savedEntry: SavedWord?
+
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Query private var savedWords: [SavedWord]
 
     @State private var result: LookupResult?
     @State private var error: String?
     @State private var loading = true
+    @State private var confirmDelete = false
 
     private let service = TranslationProviders.current
 
     var body: some View {
         VStack(spacing: 0) {
-            SheetHeader(title: "Look Up") { dismiss() }
+            SheetHeader(title: savedEntry == nil ? "Look Up" : "Saved Word") { dismiss() }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     head
                     sentenceSection
-                    footer
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 24)
+                .padding(.bottom, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // Save / Delete stay visible at any sheet height.
+            actions
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)
-        .task(id: request.id) { await run() }
+        .task(id: request.id) {
+            if let savedEntry {
+                result = savedEntry.asResult
+                loading = false
+            } else {
+                await run()
+            }
+        }
+        .confirmationDialog("Delete Word?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let savedEntry { context.delete(savedEntry); try? context.save() }
+                dismiss()
+            }
+        } message: {
+            Text("“\(request.word)” and its review history will be removed.")
+        }
     }
 
     private func run() async {
@@ -124,12 +148,33 @@ struct LookUpSheet: View {
         .overlay(alignment: .top) { Divider() }
     }
 
-    @ViewBuilder private var footer: some View {
-        if result != nil {
-            Text(service.attribution)
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-                .padding(.top, 6)
+    @ViewBuilder private var actions: some View {
+        if let savedEntry {
+            VStack(alignment: .leading, spacing: 12) {
+                Button("Delete Word", role: .destructive) { confirmDelete = true }
+                    .buttonStyle(SecondaryButtonStyle(destructive: true))
+                Text("Saved \(savedEntry.addedAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.top, 10)
+            .overlay(alignment: .top) { Divider().padding(.horizontal, -20) }
+        } else if let result {
+            let saved = savedWords.entry(for: request) != nil
+            VStack(alignment: .leading, spacing: 12) {
+                Button(saved ? "Saved to Flashcards" : "Save to Flashcards") {
+                    context.insert(SavedWord(request: request, result: result))
+                    try? context.save()
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+                .buttonStyle(InkButtonStyle(block: true))
+                .disabled(saved)
+                Text(service.attribution)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.top, 10)
+            .overlay(alignment: .top) { Divider().padding(.horizontal, -20) }
         }
     }
 
@@ -170,5 +215,18 @@ struct SkeletonBar: View {
         .onAppear {
             withAnimation(.linear(duration: 1.3).repeatForever(autoreverses: false)) { phase = 1 }
         }
+    }
+}
+
+/// Grey filled pill, like the web app's `.btn.secondary` / `.btn.destructive`.
+struct SecondaryButtonStyle: ButtonStyle {
+    var destructive = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(destructive ? Color.red : Color.primary)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(Color(.tertiarySystemFill), in: Capsule())
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }

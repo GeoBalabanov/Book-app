@@ -19,10 +19,12 @@ body { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; -web
 .reader.paper { background-image: var(--r-texture); }
 .reader-viewport {
   position: absolute; overflow: hidden;
-  top: calc(env(safe-area-inset-top, 0px) + var(--r-margin-top, 58px));
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--r-margin-bottom, 40px));
-  left: calc(env(safe-area-inset-left, 0px) + var(--r-margin-x, 24px));
-  right: calc(env(safe-area-inset-right, 0px) + var(--r-margin-x, 24px));
+  /* Safe-area insets come from native code (--safe-*): WebKit's env() values
+     arrive only after the first layout, which would shift saved positions. */
+  top: calc(var(--safe-top, env(safe-area-inset-top, 0px)) + var(--r-margin-top, 58px));
+  bottom: calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + var(--r-margin-bottom, 40px));
+  left: calc(var(--safe-left, env(safe-area-inset-left, 0px)) + var(--r-margin-x, 24px));
+  right: calc(var(--safe-right, env(safe-area-inset-right, 0px)) + var(--r-margin-x, 24px));
 }
 .reader-content {
   height: 100%;
