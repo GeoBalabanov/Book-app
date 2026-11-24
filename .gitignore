@@ -7,3 +7,8 @@ ios/**/Secrets.xcconfig
 node_modules/
 .DS_Store
 *.log
+
+# Xcode
+ios/**/xcuserdata/
+ios/build/
+DerivedData/

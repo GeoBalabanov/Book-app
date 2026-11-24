@@ -1,0 +1,5 @@
+// Base settings for the Lexi app target.
+// Your DeepL key goes in Secrets.xcconfig (git-ignored). Copy
+// Secrets.example.xcconfig to Secrets.xcconfig and fill it in.
+DEEPL_API_KEY =
+#include? "Secrets.xcconfig"
