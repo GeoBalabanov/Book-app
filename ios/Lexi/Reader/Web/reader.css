@@ -1,0 +1,59 @@
+/* Reader page styles, ported from web/app.css (.reader and .reader-content rules). */
+@font-face { font-family: "Lexi Literata"; font-style: normal; font-weight: 200 900;
+  src: url("fonts/literata-latin-wght-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Lexi Literata"; font-style: italic; font-weight: 200 900;
+  src: url("fonts/literata-latin-wght-italic.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Lexi Literata"; font-style: normal; font-weight: 200 900;
+  src: url("fonts/literata-cyrillic-wght-normal.woff2") format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Lexi Literata"; font-style: italic; font-weight: 200 900;
+  src: url("fonts/literata-cyrillic-wght-italic.woff2") format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--r-bg, #fff); }
+body { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+
+.reader {
+  position: fixed; inset: 0; overflow: hidden;
+  background: var(--r-bg); color: var(--r-fg);
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.reader.paper { background-image: var(--r-texture); }
+.reader-viewport {
+  position: absolute; overflow: hidden;
+  /* Safe-area insets come from native code (--safe-*): WebKit's env() values
+     arrive only after the first layout, which would shift saved positions. */
+  top: calc(var(--safe-top, env(safe-area-inset-top, 0px)) + var(--r-margin-top, 58px));
+  bottom: calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + var(--r-margin-bottom, 40px));
+  left: calc(var(--safe-left, env(safe-area-inset-left, 0px)) + var(--r-margin-x, 24px));
+  right: calc(var(--safe-right, env(safe-area-inset-right, 0px)) + var(--r-margin-x, 24px));
+}
+.reader-content {
+  height: 100%;
+  font-family: var(--r-font); font-size: var(--r-size); line-height: var(--r-line);
+  font-weight: var(--r-weight); color: var(--r-fg); letter-spacing: 0;
+  text-align: var(--r-align, start); hyphens: auto; -webkit-hyphens: auto;
+  column-fill: auto; will-change: transform; orphans: 2; widows: 2;
+  font-variant-numeric: oldstyle-nums proportional-nums; font-kerning: normal; text-rendering: optimizeLegibility;
+}
+/* WebKit only paints ::highlight() in selectable text; selection itself is
+   blocked in reader.js (selectstart), so nothing can actually be selected. */
+.reader-content { -webkit-user-select: text; user-select: text; }
+.reader-content.animating { transition: transform .34s cubic-bezier(.25,.8,.25,1); }
+.reader-content * { max-width: 100%; }
+.reader-content p { margin: 0; text-indent: 1.4em; }
+.reader-content p.noindent, .reader-content h1 + p, .reader-content h2 + p, .reader-content h3 + p,
+.reader-content hr + p, .reader-content .text > p:first-child { text-indent: 0; }
+.reader-content h1, .reader-content h2, .reader-content h3, .reader-content h4 {
+  font-weight: 600; line-height: 1.25; text-align: center; text-indent: 0; margin: 2.2em 0 1.6em;
+  break-after: avoid; text-wrap: balance; letter-spacing: -0.005em;
+}
+.reader-content h1 { font-size: 1.45em; } .reader-content h2 { font-size: 1.3em; } .reader-content h3 { font-size: 1.1em; } .reader-content h4 { font-size: 1em; }
+.reader-content .chapterHeader { display: block; font-size: .5em; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 1.1em; opacity: .55; }
+.reader-content .dropcap { font-size: 1em; }
+.reader-content img, .reader-content svg { max-height: calc(var(--r-page-h) - 2em); object-fit: contain; display: block; margin: 1em auto; break-inside: avoid; }
+.reader-content blockquote { margin: 1em 1.4em; }
+.reader-content hr { border: 0; text-align: center; margin: 1.4em 0; height: 1em; }
+.reader-content hr::after { content: "⁂"; opacity: .5; }
+.reader-content a { color: inherit; text-decoration: underline; text-decoration-color: var(--r-muted); text-underline-offset: 2px; }
+.reader-content table { border-collapse: collapse; font-size: .9em; }
+.reader-content td, .reader-content th { padding: .2em .4em; }
+.message { height: 100%; display: grid; place-items: center; color: var(--r-muted); font: 15px -apple-system, system-ui, sans-serif; text-align: center; }

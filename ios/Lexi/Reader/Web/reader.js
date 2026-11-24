@@ -1,0 +1,586 @@
+// Paginated EPUB reader inside the WKWebView. Ported from web/js/reader/reader.js.
+// One chapter is laid out at a time with CSS columns; each "page" is one
+// viewport-wide step of the column strip (two columns on wide screens, e.g.
+// iPad landscape). Native code drives it through window.Lexi and gets events
+// through the "lexi" message handler.
+(() => {
+  'use strict';
+
+  const root = document.getElementById('reader');
+  const viewport = document.getElementById('viewport');
+  const content = document.getElementById('content');
+
+  const post = (msg) => { try { window.webkit.messageHandlers.lexi.postMessage(msg); } catch (e) { /* not in app */ } };
+  window.addEventListener('error', (e) => post({ type: 'log', message: `${e.message} (${e.filename}:${e.lineno})` }));
+  window.addEventListener('unhandledrejection', (e) => post({ type: 'log', message: `Unhandled: ${e.reason}` }));
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+  const state = {
+    base: '',          // URL prefix of the unzipped book, e.g. /book/<folder>/
+    spine: [],         // chapter paths
+    lengths: [],       // chapter text lengths, for whole-book progress
+    total: 1,
+    chapter: 0,
+    page: 0,
+    pages: 1,
+    g: null,
+    crossing: false,
+    savedForms: new Set(),
+  };
+
+  // ---------- Paths & chapter rendering ----------
+
+  function resolvePath(base, rel) {
+    if (/^[a-z]+:/i.test(rel)) return rel;
+    const [pathPart, frag] = rel.split('#');
+    const parts = base ? base.split('/').slice(0, -1) : [];
+    for (const seg of pathPart.split('/')) {
+      if (seg === '..') parts.pop();
+      else if (seg && seg !== '.') parts.push(seg);
+    }
+    let out = parts.join('/');
+    try { out = decodeURIComponent(out); } catch (e) { /* keep raw */ }
+    return frag !== undefined ? `${out}#${frag}` : out;
+  }
+
+  const fileURL = (path) => state.base + path.split('/').map(encodeURIComponent).join('/');
+
+  function parseXhtml(text) {
+    const strict = new DOMParser().parseFromString(text, 'application/xhtml+xml');
+    if (!strict.getElementsByTagName('parsererror').length) return strict;
+    return new DOMParser().parseFromString(text, 'text/html');
+  }
+
+  const BLOCKED_TAGS = new Set(['script', 'style', 'link', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'meta', 'base', 'audio', 'video', 'source', 'noscript', 'head', 'title']);
+
+  /** A sanitized, display-ready fragment for one spine item (same rules as the web parser). */
+  async function renderChapter(index) {
+    const href = state.spine[index];
+    const res = await fetch(fileURL(href));
+    if (!res.ok) throw new Error(`Missing ${href}`);
+    const src = parseXhtml(await res.text());
+    const body = src.getElementsByTagName('body')[0] || src.documentElement;
+    const frag = document.createDocumentFragment();
+
+    const copy = (node, parent) => {
+      if (node.nodeType === 3) { parent.append(document.createTextNode(node.data)); return; }
+      if (node.nodeType !== 1) return;
+      const tag = node.localName.toLowerCase();
+      if (BLOCKED_TAGS.has(tag)) return;
+      const isSvg = node.namespaceURI === 'http://www.w3.org/2000/svg';
+      const el = isSvg ? document.createElementNS('http://www.w3.org/2000/svg', node.localName) : document.createElement(tag === 'body' ? 'div' : tag);
+      for (const attr of [...node.attributes]) {
+        const name = attr.localName.toLowerCase();
+        if (name.startsWith('on') || name === 'style' || name === 'srcset') continue;
+        if (name === 'id') { el.setAttribute('id', `epub-${index}-${attr.value}`); continue; }
+        if (name === 'class' && !isSvg) { el.setAttribute('class', attr.value); continue; }
+        if (!isSvg && tag === 'a' && name === 'href') {
+          el.setAttribute('data-href', attr.value.startsWith('#') ? `${href}${attr.value}` : resolvePath(href, attr.value));
+          el.setAttribute('role', 'link');
+          continue;
+        }
+        if ((tag === 'img' && name === 'src') || (isSvg && name === 'href' && node.localName === 'image')) {
+          const url = fileURL(resolvePath(href, attr.value));
+          if (isSvg) { el.setAttributeNS('http://www.w3.org/1999/xlink', 'href', url); el.setAttribute('href', url); } else el.setAttribute('src', url);
+          continue;
+        }
+        if (['alt', 'title', 'colspan', 'rowspan', 'lang', 'dir'].includes(name) || isSvg) {
+          try { el.setAttribute(attr.name.replace(/^xlink:/, ''), attr.value); } catch (e) { /* invalid attr name */ }
+        }
+      }
+      for (const child of node.childNodes) copy(child, el);
+      parent.append(el);
+    };
+    for (const child of body.childNodes) copy(child, frag);
+    return frag;
+  }
+
+  // ---------- Theme & layout ----------
+
+  // ::highlight() rules get concrete colours: WebKit doesn't resolve custom
+  // properties from the page inside highlight pseudo-elements.
+  const highlightStyle = document.createElement('style');
+  document.head.append(highlightStyle);
+
+  function setInsets(i) {
+    if (!i) return;
+    for (const k of ['top', 'bottom', 'left', 'right']) root.style.setProperty(`--safe-${k}`, `${i[k] || 0}px`);
+  }
+
+  function applyTheme(vars, textured) {
+    for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+    highlightStyle.textContent =
+      `::highlight(lexi-lookup) { background-color: ${vars['--r-select']}; color: inherit; }\n` +
+      `::highlight(lexi-saved) { text-decoration: underline; text-decoration-color: ${vars['--r-accent']}; text-decoration-thickness: 1.5px; text-underline-offset: 4px; }`;
+    document.documentElement.style.setProperty('--r-bg', vars['--r-bg']);
+    root.classList.toggle('paper', !!textured);
+    const wide = window.innerWidth >= 900;
+    root.style.setProperty('--r-margin-x', wide ? 'max(56px, calc((100vw - 1180px) / 2))' : 'clamp(22px, 6.5vw, 44px)');
+    root.style.setProperty('--r-margin-top', '58px');
+    root.style.setProperty('--r-margin-bottom', '40px');
+  }
+
+  function geometry() {
+    const W = viewport.clientWidth;
+    const H = viewport.clientHeight;
+    const cols = W >= 760 ? 2 : 1;
+    const G = cols === 2 ? 64 : 48;
+    const colW = (W - (cols - 1) * G) / cols;
+    return { W, H, cols, G, colW, step: W + G };
+  }
+
+  function layout() {
+    const g = geometry();
+    state.g = g;
+    const c = content.style;
+    c.width = `${g.W}px`;
+    c.columnWidth = `${g.colW}px`;
+    c.columnGap = `${g.G}px`;
+    c.columnCount = 'auto';
+    root.style.setProperty('--r-page-h', `${g.H}px`);
+    const ncols = Math.max(1, Math.round((content.scrollWidth + g.G) / (g.colW + g.G)));
+    state.pages = Math.max(1, Math.ceil(ncols / g.cols));
+  }
+
+  /** The text position at the top of the current page, used to stay in place across relayouts. */
+  function anchor() {
+    const r = viewport.getBoundingClientRect();
+    const x = r.left + 4, y = r.top + 4;
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (!n.data.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      for (const rect of range.getClientRects()) {
+        if (rect.right > x && rect.left < r.right && rect.bottom > y) {
+          for (let i = 0; i < n.data.length; i += 8) {
+            range.setStart(n, i); range.setEnd(n, Math.min(n.data.length, i + 1));
+            const cr = range.getBoundingClientRect();
+            if (cr.left >= r.left - 2 && cr.left < r.right) return { node: n, offset: i };
+          }
+          return { node: n, offset: 0 };
+        }
+      }
+    }
+    return null;
+  }
+
+  function pageOfAnchor(a) {
+    if (!a || !a.node.isConnected) return null;
+    const range = document.createRange();
+    range.setStart(a.node, a.offset);
+    range.setEnd(a.node, Math.min(a.node.data.length, a.offset + 1));
+    return pageOfRect(range.getBoundingClientRect());
+  }
+
+  function pageOfRect(rect) {
+    const base = content.getBoundingClientRect().left; // already translated
+    const x = rect.left - base;
+    return Math.max(0, Math.min(state.pages - 1, Math.floor((x + 1) / state.g.step)));
+  }
+
+  const relayout = debounce(() => {
+    if (!state.g) return;
+    const a = anchor();
+    layout();
+    const p = pageOfAnchor(a);
+    goPage(p ?? Math.min(state.page, state.pages - 1), false);
+  }, 120);
+
+  // ---------- Chapters & pages ----------
+
+  /** `textFraction`: a position saved by textFraction(); `fraction`: a rough share of the chapter's pages. */
+  async function loadChapter(index, { fraction = 0, textFraction: tf = null, toEnd = false, fragment = null } = {}) {
+    index = Math.max(0, Math.min(state.spine.length - 1, index));
+    let frag;
+    try {
+      frag = await renderChapter(index);
+    } catch (e) {
+      frag = document.createElement('p');
+      frag.textContent = 'This section could not be displayed.';
+    }
+    state.chapter = index;
+    setLookupHighlight(null);
+    content.replaceChildren(frag);
+    content.style.transform = 'translateX(0)';
+    for (const img of content.querySelectorAll('img')) {
+      if (!img.complete) img.addEventListener('load', relayout, { once: true });
+    }
+    // Fonts are only requested once text that uses them is in the page; lay out
+    // after they load so page counts (and restored positions) are final.
+    void content.offsetWidth; // start layout, which requests the fonts in use
+    try { await Promise.race([document.fonts.ready, wait(1500)]); } catch (e) { /* ignore */ }
+    layout();
+    let page = toEnd ? state.pages - 1 : Math.floor(fraction * state.pages + 1e-6);
+    if (tf !== null && !toEnd) page = pageOfTextFraction(tf) ?? page;
+    if (fragment) {
+      const el = content.querySelector(`[id="epub-${index}-${CSS.escape(fragment)}"]`);
+      if (el) page = pageOfRect(el.getBoundingClientRect());
+    }
+    goPage(Math.max(0, Math.min(state.pages - 1, page)), false);
+    underlineSaved();
+    post({ type: 'chapterLoaded', chapter: index });
+  }
+
+  function goPage(p, animate = true) {
+    state.page = Math.max(0, Math.min(state.pages - 1, p));
+    content.classList.toggle('animating', animate);
+    content.style.transform = `translateX(${-state.page * state.g.step}px)`;
+    reportLocation();
+  }
+
+  async function next() {
+    if (state.page < state.pages - 1) return goPage(state.page + 1);
+    if (state.chapter < state.spine.length - 1) return crossChapter(state.chapter + 1, false);
+    bounce(-1);
+  }
+
+  async function prev() {
+    if (state.page > 0) return goPage(state.page - 1);
+    if (state.chapter > 0) return crossChapter(state.chapter - 1, true);
+    bounce(1);
+  }
+
+  async function crossChapter(index, toEnd) {
+    if (state.crossing) return;
+    state.crossing = true;
+    const dir = toEnd ? 1 : -1;
+    const out = -state.page * state.g.step + dir * state.g.step;
+    content.classList.add('animating');
+    content.style.transform = `translateX(${out}px)`;
+    await wait(200);
+    await loadChapter(index, { toEnd });
+    const target = -state.page * state.g.step;
+    content.classList.remove('animating');
+    content.style.transform = `translateX(${target - dir * state.g.step}px)`;
+    content.getBoundingClientRect();
+    content.classList.add('animating');
+    content.style.transform = `translateX(${target}px)`;
+    state.crossing = false;
+  }
+
+  function bounce(dir) {
+    const base = -state.page * state.g.step;
+    content.classList.add('animating');
+    content.style.transform = `translateX(${base + dir * 30}px)`;
+    setTimeout(() => { content.style.transform = `translateX(${base}px)`; }, 160);
+  }
+
+  function bookProgress() {
+    const before = state.lengths.slice(0, state.chapter).reduce((a, b) => a + b, 0);
+    const within = state.pages > 1 ? state.page / (state.pages - 1) : 1;
+    return Math.min(1, (before + within * (state.lengths[state.chapter] || 0)) / state.total);
+  }
+
+  function locationFromProgress(p) {
+    let acc = 0;
+    const target = p * state.total;
+    for (let i = 0; i < state.lengths.length; i++) {
+      if (acc + state.lengths[i] >= target) return { chapter: i, fraction: (target - acc) / state.lengths[i] };
+      acc += state.lengths[i];
+    }
+    return { chapter: state.lengths.length - 1, fraction: 0.999 };
+  }
+
+  /**
+   * Fraction (0..1) of the chapter's text before the first character on the
+   * current page. Uses page numbers from layout (pageOfRect is relative to the
+   * content box), so it is correct even while a page turn is still animating.
+   */
+  function textFraction() {
+    const target = state.page;
+    let total = 0, found = null;
+    const range = document.createRange();
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (found === null && n.data.trim()) {
+        range.selectNodeContents(n);
+        if ([...range.getClientRects()].some((r) => pageOfRect(r) >= target)) {
+          for (let i = 0; i < n.data.length; i += 4) {
+            range.setStart(n, i); range.setEnd(n, Math.min(n.data.length, i + 1));
+            if (pageOfRect(range.getBoundingClientRect()) >= target) { found = total + i; break; }
+          }
+          if (found === null) found = total;
+        }
+      }
+      total += n.data.length;
+    }
+    return total && found !== null ? found / total : 0;
+  }
+
+  /** The page that shows the character at `fraction` of the chapter's text. */
+  function pageOfTextFraction(fraction) {
+    let total = 0;
+    const nodes = [];
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n, total]); total += n.data.length; }
+    const target = Math.floor(fraction * total);
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const [n, start] = nodes[i];
+      if (target >= start) {
+        // Skip whitespace-only nodes, which have no useful position.
+        let j = i;
+        while (j < nodes.length - 1 && !nodes[j][0].data.trim()) j++;
+        const [node, nodeStart] = nodes[j];
+        const off = Math.max(0, Math.min(node.data.length - 1, target - nodeStart));
+        const range = document.createRange();
+        range.setStart(node, off);
+        range.setEnd(node, Math.min(node.data.length, off + 1));
+        const rect = range.getBoundingClientRect();
+        if (!rect.width && !rect.height) return null;
+        return pageOfRect(rect);
+      }
+    }
+    return null;
+  }
+
+  function reportLocation() {
+    post({
+      type: 'location',
+      chapter: state.chapter,
+      page: state.page,
+      pages: state.pages,
+      fraction: textFraction(),
+      progress: bookProgress(),
+    });
+  }
+
+  // ---------- Input ----------
+
+  // Touches are recognised natively (UIKit gesture recognizers on the web view)
+  // and forwarded here, so WebKit's own selection and callouts never interfere.
+  function bindEvents() {
+    document.addEventListener('selectstart', (e) => e.preventDefault());
+    window.addEventListener('resize', relayout);
+    document.fonts?.ready?.then(relayout);
+  }
+
+  const drag = { active: false };
+
+  function dragStart() {
+    if (state.crossing || !state.g) return;
+    drag.active = true;
+    content.classList.remove('animating');
+  }
+
+  function dragMove(dx) {
+    if (!drag.active) return;
+    let off = dx;
+    const atStart = state.page === 0 && state.chapter === 0;
+    const atEnd = state.page === state.pages - 1 && state.chapter === state.spine.length - 1;
+    if ((off > 0 && atStart) || (off < 0 && atEnd)) off *= 0.3;
+    content.style.transform = `translateX(${-state.page * state.g.step + off}px)`;
+  }
+
+  /** dx in points, vx in points per millisecond. */
+  function dragEnd(dx, vx) {
+    if (!drag.active) return;
+    drag.active = false;
+    const fast = Math.abs(vx) > 0.35;
+    if (dx < -60 || (fast && dx < -20)) next();
+    else if (dx > 60 || (fast && dx > 20)) prev();
+    else goPage(state.page);
+  }
+
+  function tap(x, y) {
+    if (state.crossing) return;
+    const target = document.elementFromPoint(x, y);
+    const link = target?.closest?.('[data-href]');
+    if (link && content.contains(link)) { followLink(link.getAttribute('data-href')); return; }
+    const w = window.innerWidth;
+    if (x < w * 0.22) prev();
+    else if (x > w * 0.78) next();
+    else post({ type: 'toggleChrome' });
+  }
+
+  async function followLink(href) {
+    if (/^https?:/i.test(href)) { post({ type: 'openURL', url: href }); return; }
+    const [file, frag] = href.split('#');
+    const idx = state.spine.indexOf(file);
+    if (idx < 0) return;
+    await loadChapter(idx, { fragment: frag || null });
+  }
+
+
+  // ---------- Words & sentences (ported from web/js/reader/selection.js) ----------
+
+  const BLOCK = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, dd, dt, td, th, figcaption, pre, div, section';
+  const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u;
+  const JOINER = /['’\-]/;
+
+  function indexText(block) {
+    const nodes = [];
+    let text = '';
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      nodes.push({ node: n, start: text.length });
+      text += n.data;
+    }
+    return { nodes, text };
+  }
+
+  function locate(nodes, abs) {
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (abs >= nodes[i].start) return { node: nodes[i].node, offset: Math.min(abs - nodes[i].start, nodes[i].node.data.length) };
+    }
+    return null;
+  }
+
+  function caretFromPoint(x, y) {
+    if (document.caretPositionFromPoint) {
+      const p = document.caretPositionFromPoint(x, y);
+      return p && { node: p.offsetNode, offset: p.offset };
+    }
+    if (document.caretRangeFromPoint) {
+      const r = document.caretRangeFromPoint(x, y);
+      return r && { node: r.startContainer, offset: r.startOffset };
+    }
+    return null;
+  }
+
+  function rangeContainsPoint(range, x, y, slop = 4) {
+    for (const r of range.getClientRects()) {
+      if (x >= r.left - slop && x <= r.right + slop && y >= r.top - slop && y <= r.bottom + slop) return true;
+    }
+    return false;
+  }
+
+  const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('en', { granularity: 'sentence' }) : null;
+
+  function sentenceBounds(text, index) {
+    // Source HTML wraps lines with newlines, which the segmenter treats as
+    // paragraph breaks. Replace each whitespace char with a space (same length).
+    text = text.replace(/\s/g, ' ');
+    if (segmenter) {
+      for (const seg of segmenter.segment(text)) {
+        if (index >= seg.index && index < seg.index + seg.segment.length) return [seg.index, seg.index + seg.segment.length];
+      }
+    }
+    let start = 0;
+    const re = /[.!?]["'’”)]*\s+(?=["'‘“(]?[A-Z])/g;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      const end = m.index + m[0].length;
+      if (end > index) return [start, end];
+      start = end;
+    }
+    return [start, text.length];
+  }
+
+  /** The word under (x, y), its sentence, and the word's offset in that sentence. */
+  function wordAtPoint(x, y) {
+    const caret = caretFromPoint(x, y);
+    if (!caret || caret.node.nodeType !== 3 || !content.contains(caret.node)) return null;
+    const block = caret.node.parentElement.closest(BLOCK) || content;
+    if (!content.contains(block)) return null;
+    const { nodes, text } = indexText(block);
+    const nodeInfo = nodes.find((n) => n.node === caret.node);
+    if (!nodeInfo) return null;
+    let i = nodeInfo.start + caret.offset;
+    if (!WORD_CHAR.test(text[i] || '') && WORD_CHAR.test(text[i - 1] || '')) i -= 1;
+    if (!WORD_CHAR.test(text[i] || '')) return null;
+
+    let s = i, e = i + 1;
+    while (s > 0 && (WORD_CHAR.test(text[s - 1]) || (JOINER.test(text[s - 1]) && WORD_CHAR.test(text[s - 2] || '')))) s--;
+    while (e < text.length && (WORD_CHAR.test(text[e]) || (JOINER.test(text[e]) && WORD_CHAR.test(text[e + 1] || '')))) e++;
+    const word = text.slice(s, e);
+    if (!/\p{L}/u.test(word)) return null;
+
+    const a = locate(nodes, s), b = locate(nodes, e);
+    const range = document.createRange();
+    range.setStart(a.node, a.offset);
+    range.setEnd(b.node, b.offset);
+    if (!rangeContainsPoint(range, x, y)) return null;
+
+    const [ss, se] = sentenceBounds(text, s);
+    const raw = text.slice(ss, se);
+    const sentence = raw.replace(/\s+/g, ' ').trim();
+    const prefix = raw.slice(0, s - ss).replace(/\s+/g, ' ').replace(/^\s+/, '');
+    return { word, sentence, offset: prefix.length, range };
+  }
+
+  const hasHighlights = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
+
+  /** WebKit doesn't repaint when a highlight is removed; nudge the content layer. */
+  function repaint() {
+    content.style.outline = '1px solid transparent';
+    requestAnimationFrame(() => { content.style.outline = ''; });
+  }
+
+  function setLookupHighlight(range) {
+    if (!hasHighlights) return;
+    if (range) CSS.highlights.set('lexi-lookup', new Highlight(range));
+    else if (CSS.highlights.has('lexi-lookup')) { CSS.highlights.delete('lexi-lookup'); repaint(); }
+  }
+
+  /** Underline every occurrence of a saved form (lowercased) in the current chapter. */
+  function underlineSaved() {
+    if (!hasHighlights) return;
+    const forms = state.savedForms;
+    if (!forms.size) {
+      if (CSS.highlights.has('lexi-saved')) { CSS.highlights.delete('lexi-saved'); repaint(); }
+      return;
+    }
+    const ranges = [];
+    const re = /[\p{L}][\p{L}\p{M}'’\-]*/gu;
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      re.lastIndex = 0;
+      for (let m = re.exec(n.data); m; m = re.exec(n.data)) {
+        const w = m[0].replace(/['’\-]+$/, '');
+        if (forms.has(w.toLowerCase())) {
+          const r = document.createRange();
+          r.setStart(n, m.index);
+          r.setEnd(n, m.index + w.length);
+          ranges.push(r);
+        }
+      }
+    }
+    CSS.highlights.set('lexi-saved', new Highlight(...ranges));
+    repaint();
+  }
+
+  /** Long-press: highlight the word and report it to native code. */
+  function lookupAt(x, y) {
+    if (state.crossing) return false;
+    const hit = wordAtPoint(x, y);
+    if (!hit) { post({ type: 'log', message: `no word at ${x},${y}; caret=${!!caretFromPoint(x, y)}` }); return false; }
+    setLookupHighlight(hit.range);
+    post({ type: 'lookup', word: hit.word, sentence: hit.sentence, offset: hit.offset });
+    return true;
+  }
+
+  // ---------- Native API ----------
+
+  window.Lexi = {
+    async open(cfg) {
+      state.base = cfg.base;
+      state.spine = cfg.spine;
+      state.lengths = cfg.lengths;
+      state.total = cfg.lengths.reduce((a, b) => a + b, 0) || 1;
+      state.savedForms = new Set(cfg.savedForms || []);
+      setInsets(cfg.insets);
+      applyTheme(cfg.vars, cfg.textured);
+      bindEvents();
+      // The web view can start loading before it is on screen; wait for a real size
+      // (and the reading font) so the saved position maps to the right page.
+      for (let i = 0; i < 60 && viewport.clientWidth < 50; i++) await wait(50);
+      try { await Promise.race([document.fonts.ready, wait(800)]); } catch (e) { /* ignore */ }
+      await loadChapter(cfg.chapter || 0, { textFraction: cfg.fraction || 0 });
+      post({ type: 'ready' });
+    },
+    setTheme(vars, textured, layoutChange) {
+      applyTheme(vars, textured);
+      if (layoutChange) relayout();
+    },
+    goTo(chapter, fragment) { return loadChapter(chapter, { fragment: fragment || null }); },
+    goToProgress(p) { const loc = locationFromProgress(p); return loadChapter(loc.chapter, { fraction: loc.fraction }); },
+    locationLabel(p) { return locationFromProgress(p).chapter; },
+    next, prev, tap, dragStart, dragMove, dragEnd, lookupAt,
+    clearLookup() { setLookupHighlight(null); },
+    setInsets(i) { setInsets(i); relayout(); },
+    setSavedForms(forms) { state.savedForms = new Set(forms); underlineSaved(); },
+  };
+
+  post({ type: 'loaded' });
+})();
