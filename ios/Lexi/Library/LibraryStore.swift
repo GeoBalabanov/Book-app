@@ -23,13 +23,17 @@ enum LibraryStore {
         let id = sampleID
         let existing = try? context.fetch(FetchDescriptor<Book>(predicate: #Predicate { $0.id == id }))
         if let book = existing?.first {
+            // The sample is Project Gutenberg #36; older installs didn't record that.
+            if book.gutenbergID == nil { book.gutenbergID = 36; try? context.save() }
             // Re-extract if the files went missing (e.g. a reinstall restored the store only).
             if FileManager.default.fileExists(atPath: folderURL(for: book).path) { return }
             context.delete(book)
         }
         guard let url = Bundle.main.url(forResource: "war-of-the-worlds", withExtension: "epub") else { return }
         do {
-            _ = try importEpub(at: url, into: context, id: id, isSample: true, addedAt: .distantPast)
+            let book = try importEpub(at: url, into: context, id: id, isSample: true, addedAt: .distantPast)
+            book.gutenbergID = 36
+            try? context.save()
         } catch {
             print("Sample book unavailable: \(error)")
         }

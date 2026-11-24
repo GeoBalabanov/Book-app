@@ -12,7 +12,7 @@ struct LexiApp: App {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
         do {
-            container = try ModelContainer(for: Book.self, CachedTranslation.self, SavedWord.self)
+            container = try ModelContainer(for: Book.self, CachedTranslation.self, SavedWord.self, ReadingDay.self)
         } catch {
             fatalError("Could not open the Lexi data store: \(error)")
         }
@@ -31,27 +31,38 @@ struct LexiApp: App {
 struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
-    @State private var openBook: Book?
+    @State private var router = AppRouter()
     @Query private var savedWords: [SavedWord]
 
     /// Cards due today, shown as a badge on the Flashcards tab.
     private var dueCount: Int { savedWords.filter { SM2.isDueToday($0.due) }.count }
 
     var body: some View {
-        TabView {
-            LibraryView(openBook: $openBook)
+        @Bindable var router = router
+        TabView(selection: $router.tab) {
+            HomeView()
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(AppRouter.Tab.home)
+            LibraryView(openBook: $router.openBook)
                 .tabItem { Label("Library", systemImage: "books.vertical") }
+                .tag(AppRouter.Tab.library)
             VocabularyView()
                 .tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
+                .tag(AppRouter.Tab.vocabulary)
             FlashcardsView()
                 .tabItem { Label("Flashcards", systemImage: "rectangle.on.rectangle.angled") }
                 .badge(dueCount)
+                .tag(AppRouter.Tab.flashcards)
+            SearchView()
+                .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                .tag(AppRouter.Tab.search)
         }
+        .environment(router)
         .onAppear { LibraryStore.ensureSample(in: context) }
         // The reader overrides its own presentation's color scheme to match the page,
         // so the device appearance is read here, outside it, for the "Auto" setting.
-        .fullScreenCover(item: $openBook) { book in
-            ReaderView(book: book, systemScheme: colorScheme) { openBook = nil }
+        .fullScreenCover(item: $router.openBook) { book in
+            ReaderView(book: book, systemScheme: colorScheme) { router.openBook = nil }
         }
     }
 }

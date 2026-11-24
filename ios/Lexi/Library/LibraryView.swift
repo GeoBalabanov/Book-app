@@ -185,12 +185,6 @@ struct LibraryView: View {
 struct CoverView: View {
     let book: Book
 
-    private static let cloth: [Color] = [
-        Color(red: 0.23, green: 0.21, blue: 0.19), Color(red: 0.18, green: 0.24, blue: 0.27),
-        Color(red: 0.29, green: 0.18, blue: 0.18), Color(red: 0.19, green: 0.25, blue: 0.20),
-        Color(red: 0.25, green: 0.22, blue: 0.30), Color(red: 0.32, green: 0.26, blue: 0.18),
-    ]
-
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(topLeadingRadius: 2, bottomLeadingRadius: 2, bottomTrailingRadius: 4, topTrailingRadius: 4)
     }
@@ -212,18 +206,7 @@ struct CoverView: View {
     }
 
     private var generated: some View {
-        let color = Self.cloth[abs(book.title.hashValue) % Self.cloth.count]
-        return VStack(alignment: .leading) {
-            Text(book.title).font(.system(size: 17, weight: .semibold, design: .serif))
-            Spacer()
-            Text(book.author.uppercased()).font(.system(size: 11, weight: .medium)).tracking(0.66).opacity(0.7)
-        }
-        .foregroundStyle(Color(red: 0.96, green: 0.94, blue: 0.90))
-        .padding(.vertical, 18)
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(color, in: shape)
-        .modifier(CoverShadow())
+        GeneratedCover(title: book.title, author: book.author)
     }
 }
 

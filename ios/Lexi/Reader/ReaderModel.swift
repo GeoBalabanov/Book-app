@@ -33,6 +33,8 @@ final class ReaderModel {
     private var saveTask: Task<Void, Never>?
     private let navDelegate = NavLogger()
     private let gestures = ReaderGestures()
+    /// Active reading time, for Reading Goals on Home.
+    @ObservationIgnored private lazy var tracker = ReadingTracker(context: book.modelContext)
 
     init(book: Book) {
         self.book = book
@@ -111,6 +113,7 @@ final class ReaderModel {
     // MARK: Touch (forwarded from ReaderGestures)
 
     func tap(at p: CGPoint) {
+        tracker.activity()
         guard ready else { return }
         if overlay != nil { withAnimation(.easeOut(duration: 0.2)) { overlay = nil }; return }
         call("Lexi.tap(\(p.x), \(p.y))")
@@ -167,7 +170,13 @@ final class ReaderModel {
         scrubbing = nil
     }
 
+    /// App going to the background, or the reader closing: stop the reading clock.
+    func pauseTracking() { tracker.pause() }
+
+    func resumeTracking() { if ready { tracker.start() } }
+
     func close() {
+        tracker.pause()
         saveTask?.cancel()
         saveLocation()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "lexi")
@@ -197,9 +206,11 @@ final class ReaderModel {
             ]
             call("Lexi.open(\(json(cfg)))")
         case "ready":
+            tracker.start()
             withAnimation(.easeOut(duration: 0.2)) { ready = true }
             book.lastOpenedAt = .now
         case "location":
+            if ready { tracker.activity() }
             chapter = msg["chapter"] as? Int ?? 0
             page = msg["page"] as? Int ?? 0
             pages = msg["pages"] as? Int ?? 1
@@ -207,6 +218,7 @@ final class ReaderModel {
             let fraction = msg["fraction"] as? Double ?? 0
             scheduleSave(fraction: fraction)
         case "lookup":
+            tracker.activity()
             guard let word = msg["word"] as? String, let sentence = msg["sentence"] as? String else { return }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             lookup = LookupRequest(word: word, sentence: sentence, offset: msg["offset"] as? Int ?? 0,

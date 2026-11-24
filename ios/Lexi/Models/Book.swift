@@ -25,6 +25,9 @@ final class Book {
     var progress: Double          // 0...1 over the whole book
     var chapterLabel: String
 
+    /// Project Gutenberg ebook number, for books from the catalogue (and the sample).
+    var gutenbergID: Int? = nil
+
     init(id: String, title: String, author: String, coverData: Data?, folder: String,
          spine: [String], textLengths: [Int], toc: [TocEntry], isSample: Bool, addedAt: Date = .now) {
         self.id = id

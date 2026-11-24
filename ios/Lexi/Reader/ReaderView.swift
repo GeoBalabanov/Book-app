@@ -28,6 +28,7 @@ struct ReaderView: View {
 private struct ReaderScreen: View {
     @Bindable var model: ReaderModel
     @Query private var savedWords: [SavedWord]
+    @Environment(\.scenePhase) private var scenePhase
     let systemScheme: ColorScheme
     let onClose: () -> Void
 
@@ -73,6 +74,9 @@ private struct ReaderScreen: View {
             model.setSavedForms(savedWords.underlineForms)
         }
         .onChange(of: savedWords.underlineForms) { _, forms in model.setSavedForms(forms) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.resumeTracking() } else { model.pauseTracking() }
+        }
         .onChange(of: settings) { old, new in
             let layout = old.theme != new.theme || old.font != new.font || old.fontSize != new.fontSize
                 || old.lineHeight != new.lineHeight || old.justify != new.justify
