@@ -32,6 +32,10 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
     @State private var openBook: Book?
+    @Query private var savedWords: [SavedWord]
+
+    /// Cards due today, shown as a badge on the Flashcards tab.
+    private var dueCount: Int { savedWords.filter { SM2.isDueToday($0.due) }.count }
 
     var body: some View {
         TabView {
@@ -39,25 +43,15 @@ struct RootView: View {
                 .tabItem { Label("Library", systemImage: "books.vertical") }
             VocabularyView()
                 .tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
-            PlaceholderTab(title: "Flashcards", message: "Review saved words with spaced repetition.")
+            FlashcardsView()
                 .tabItem { Label("Flashcards", systemImage: "rectangle.on.rectangle.angled") }
+                .badge(dueCount)
         }
         .onAppear { LibraryStore.ensureSample(in: context) }
         // The reader overrides its own presentation's color scheme to match the page,
         // so the device appearance is read here, outside it, for the "Auto" setting.
         .fullScreenCover(item: $openBook) { book in
             ReaderView(book: book, systemScheme: colorScheme) { openBook = nil }
-        }
-    }
-}
-
-struct PlaceholderTab: View {
-    let title: String
-    let message: String
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView(title, systemImage: "hourglass", description: Text(message))
-                .navigationTitle(title)
         }
     }
 }
